@@ -1,71 +1,135 @@
--- 创建 GUI 元素
-local ScreenGui = Instance.new("ScreenGui")
-local Frame = Instance.new("Frame")
-local TextBox = Instance.new("TextBox")
-local Button = Instance.new("TextButton")
-local MinimizeButton = Instance.new("TextButton")
-local IsMinimized = false
+local player = game.Players.LocalPlayer
+local cam = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+local onMobile = not UIS.KeyboardEnabled
+local keysDown = {}
+local rotating = false
+local touchPos = nil
 
-ScreenGui.Name = "SpectateGui"
-ScreenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+-- 初始化相机
+if not game:IsLoaded() then game.Loaded:Wait() end
+cam.CameraType = Enum.CameraType.Scriptable
 
-Frame.Size = UDim2.new(0, 200, 0, 150)
-Frame.Position = UDim2.new(0.5, -100, 0.5, -75)
-Frame.BackgroundColor3 = Color3.new(1, 1, 1)
-Frame.Active = true
-Frame.Draggable = true -- 允许拖动
-Frame.Parent = ScreenGui
+-- 设置速度和灵敏度
+local speed = 5
+local sens = .3
+speed /= 10
+if onMobile then sens *= 2 end
 
-TextBox.Size = UDim2.new(1, 0, 0, 50)
-TextBox.Position = UDim2.new(0, 0, 0, 50)
-TextBox.PlaceholderText = "输入玩家名字"
-TextBox.Parent = Frame
+-- 创建 ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
-Button.Size = UDim2.new(1, 0, 0, 50)
-Button.Position = UDim2.new(0, 0, 0, 100)
-Button.Text = "传送"
-Button.Parent = Frame
+-- 创建自由视角切换按钮
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0, 200, 0, 50)
+toggleButton.Position = UDim2.new(0.5, -100, 0.1, 0)
+toggleButton.Text = "Toggle Free Cam"
+toggleButton.Parent = screenGui
+toggleButton.Active = true
+toggleButton.Draggable = true
 
-MinimizeButton.Size = UDim2.new(0, 50, 0, 50)
-MinimizeButton.Position = UDim2.new(1, -50, 0, 0)
-MinimizeButton.Text = "_"
-MinimizeButton.Parent = Frame
-
--- 监听最小化按钮点击事件
-MinimizeButton.MouseButton1Click:Connect(function()
-    IsMinimized = not IsMinimized
-    if IsMinimized then
-        Frame.Size = UDim2.new(0, 50, 0, 50)
-        TextBox.Visible = false
-        Button.Visible = false
-        MinimizeButton.Size = UDim2.new(1, 0, 1, 0)
-        MinimizeButton.Position = UDim2.new(0, 0, 0, 0)
+-- 处理渲染步骤
+local function renderStepped()
+    if rotating then
+        local delta = UIS:GetMouseDelta()
+        local cf = cam.CFrame
+        local yAngle = cf:ToEulerAngles(Enum.RotationOrder.YZX)
+        local newAmount = math.deg(yAngle) + delta.Y
+        if newAmount > 65 or newAmount < -65 then
+            if not (yAngle < 0 and delta.Y < 0) and not (yAngle > 0 and delta.Y > 0) then
+                delta = Vector2.new(delta.X, 0)
+            end
+        end
+        cf *= CFrame.Angles(-math.rad(delta.Y), 0, 0)
+        cf = CFrame.Angles(0, -math.rad(delta.X), 0) * (cf - cf.Position) + cf.Position
+        cf = CFrame.lookAt(cf.Position, cf.Position + cf.LookVector)
+        if delta ~= Vector2.new(0, 0) then
+            cam.CFrame = cam.CFrame:Lerp(cf, sens)
+        end
+        UIS.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
     else
-        Frame.Size = UDim2.new(0, 200, 0, 150)
-        TextBox.Visible = true
-        Button.Visible = true
-        MinimizeButton.Size = UDim2.new(0, 50, 0, 50)
-        MinimizeButton.Position = UDim2.new(1, -50, 0, 0)
+        UIS.MouseBehavior = Enum.MouseBehavior.Default
+    end
+
+    -- 相机移动
+    if keysDown["Enum.KeyCode.W"] then
+        cam.CFrame *= CFrame.new(Vector3.new(0, 0, -speed))
+    end
+    if keysDown["Enum.KeyCode.S"] then
+        cam.CFrame *= CFrame.new(Vector3.new(0, 0, speed))
+    end
+    if keysDown["Enum.KeyCode.A"] then
+        cam.CFrame *= CFrame.new(Vector3.new(-speed, 0, 0))
+    end
+    if keysDown["Enum.KeyCode.D"] then
+        cam.CFrame *= CFrame.new(Vector3.new(speed, 0, 0))
+    end
+end
+
+RS.RenderStepped:Connect(renderStepped)
+
+local validKeys = {"Enum.KeyCode.W", "Enum.KeyCode.S", "Enum.KeyCode.A", "Enum.KeyCode.D"}
+
+UIS.InputBegan:Connect(function(Input)
+    for i, key in pairs(validKeys) do
+        if key == tostring(Input.KeyCode) then
+            keysDown[key] = true
+        end
+    end
+    if Input.UserInputType == Enum.UserInputType.MouseButton2 or (Input.UserInputType == Enum.UserInputType.Touch and UIS:GetMouseLocation().X > (cam.ViewportSize.X / 2)) then
+        rotating = true
+    end
+    if Input.UserInputType == Enum.UserInputType.Touch then
+        if Input.Position.X < cam.ViewportSize.X / 2 then
+            touchPos = Input.Position
+        end
     end
 end)
 
--- 监听传送按钮点击事件
-Button.MouseButton1Click:Connect(function()
-    local targetName = TextBox.Text
-    if targetName ~= "" then
-        local players = game.Players:GetPlayers()
-        for _, player in ipairs(players) do
-            if string.find(player.Name:lower(), targetName:lower()) then
-                -- 转移视角到目标玩家身上
-                local character = player.Character
-                if character and character:FindFirstChild("HumanoidRootPart") then
-                    local humanoidRootPart = character.HumanoidRootPart
-                    local camera = game.Workspace.CurrentCamera
-                    camera.CameraSubject = humanoidRootPart
-                    camera.CameraType = Enum.CameraType.Custom
-                    break
-                end
+UIS.InputEnded:Connect(function(Input)
+    for key, _ in pairs(keysDown) do
+        if key == tostring(Input.KeyCode) then
+            keysDown[key] = false
+        end
+    end
+    if Input.UserInputType == Enum.UserInputType.MouseButton2 or (Input.UserInputType == Enum.UserInputType.Touch and UIS:GetMouseLocation().X > (cam.ViewportSize.X / 2)) then
+        rotating = false
+    end
+    if Input.UserInputType == Enum.UserInputType.Touch and touchPos then
+        if Input.Position.X < cam.ViewportSize.X / 2 then
+            touchPos = nil
+            keysDown["Enum.KeyCode.W"] = false
+            keysDown["Enum.KeyCode.S"] = false
+            keysDown["Enum.KeyCode.A"] = false
+            keysDown["Enum.KeyCode.D"] = false
+        end
+    end
+end)
+
+UIS.TouchMoved:Connect(function(input)
+    if touchPos then
+        if input.Position.X < cam.ViewportSize.X / 2 then
+            if input.Position.Y < touchPos.Y then
+                keysDown["Enum.KeyCode.W"] = true
+                keysDown["Enum.KeyCode.S"] = false
+            else
+                keysDown["Enum.KeyCode.W"] = false
+                keysDown["Enum.KeyCode.S"] = true
+            end
+
+            if input.Position.X < touchPos.X then
+                keysDown["Enum.KeyCode.A"] = true
+                keysDown["Enum.KeyCode.D"] = false
+            else
+                keysDown["Enum.KeyCode.A"] = false
+                keysDown["Enum.KeyCode.D"] = true
             end
         end
     end
 end)
+
+-- 切换自由视角模式
+local function toggleFreeCam()
+    if cam.CameraType == Enum.CameraType.Scriptable 
