@@ -1,0 +1,36 @@
+-- 创建 BillboardGui 并附加到每个玩家的头部
+local function createNameTag(player)
+    -- 确保玩家角色存在
+    local character = player.Character or player.CharacterAdded:Wait()
+    -- 确保头部存在
+    local head = character:WaitForChild("Head")
+
+    -- 创建 BillboardGui
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Adornee = head
+    billboardGui.Size = UDim2.new(2, 0, 1, 0)
+    billboardGui.StudsOffset = Vector3.new(0, 2, 0)
+    billboardGui.Parent = head
+
+    -- 创建文本标签
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 1, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = player.Name
+    nameLabel.TextColor3 = Color3.new(0, 1, 0)  -- 绿色字体
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.TextScaled = true
+    nameLabel.Parent = billboardGui
+end
+
+-- 为当前所有玩家创建名字标签
+for _, player in pairs(game.Players:GetPlayers()) do
+    createNameTag(player)
+end
+
+-- 为新加入的玩家创建名字标签
+game.Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(character)
+        createNameTag(player)
+    end)
+end)
