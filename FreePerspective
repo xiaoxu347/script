@@ -1,36 +1,71 @@
--- 创建 BillboardGui 并附加到每个玩家的头部
-local function createNameTag(player)
-    -- 确保玩家角色存在
-    local character = player.Character or player.CharacterAdded:Wait()
-    -- 确保头部存在
-    local head = character:WaitForChild("Head")
+-- 创建 GUI 元素
+local ScreenGui = Instance.new("ScreenGui")
+local Frame = Instance.new("Frame")
+local TextBox = Instance.new("TextBox")
+local Button = Instance.new("TextButton")
+local MinimizeButton = Instance.new("TextButton")
+local IsMinimized = false
 
-    -- 创建 BillboardGui
-    local billboardGui = Instance.new("BillboardGui")
-    billboardGui.Adornee = head
-    billboardGui.Size = UDim2.new(2, 0, 1, 0)
-    billboardGui.StudsOffset = Vector3.new(0, 2, 0)
-    billboardGui.Parent = head
+ScreenGui.Name = "SpectateGui"
+ScreenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
-    -- 创建文本标签
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(1, 0, 1, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = player.Name
-    nameLabel.TextColor3 = Color3.new(0, 1, 0)  -- 绿色字体
-    nameLabel.TextStrokeTransparency = 0.5
-    nameLabel.TextScaled = true
-    nameLabel.Parent = billboardGui
-end
+Frame.Size = UDim2.new(0, 200, 0, 150)
+Frame.Position = UDim2.new(0.5, -100, 0.5, -75)
+Frame.BackgroundColor3 = Color3.new(1, 1, 1)
+Frame.Active = true
+Frame.Draggable = true -- 允许拖动
+Frame.Parent = ScreenGui
 
--- 为当前所有玩家创建名字标签
-for _, player in pairs(game.Players:GetPlayers()) do
-    createNameTag(player)
-end
+TextBox.Size = UDim2.new(1, 0, 0, 50)
+TextBox.Position = UDim2.new(0, 0, 0, 50)
+TextBox.PlaceholderText = "输入玩家名字"
+TextBox.Parent = Frame
 
--- 为新加入的玩家创建名字标签
-game.Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function(character)
-        createNameTag(player)
-    end)
+Button.Size = UDim2.new(1, 0, 0, 50)
+Button.Position = UDim2.new(0, 0, 0, 100)
+Button.Text = "传送"
+Button.Parent = Frame
+
+MinimizeButton.Size = UDim2.new(0, 50, 0, 50)
+MinimizeButton.Position = UDim2.new(1, -50, 0, 0)
+MinimizeButton.Text = "_"
+MinimizeButton.Parent = Frame
+
+-- 监听最小化按钮点击事件
+MinimizeButton.MouseButton1Click:Connect(function()
+    IsMinimized = not IsMinimized
+    if IsMinimized then
+        Frame.Size = UDim2.new(0, 50, 0, 50)
+        TextBox.Visible = false
+        Button.Visible = false
+        MinimizeButton.Size = UDim2.new(1, 0, 1, 0)
+        MinimizeButton.Position = UDim2.new(0, 0, 0, 0)
+    else
+        Frame.Size = UDim2.new(0, 200, 0, 150)
+        TextBox.Visible = true
+        Button.Visible = true
+        MinimizeButton.Size = UDim2.new(0, 50, 0, 50)
+        MinimizeButton.Position = UDim2.new(1, -50, 0, 0)
+    end
+end)
+
+-- 监听传送按钮点击事件
+Button.MouseButton1Click:Connect(function()
+    local targetName = TextBox.Text
+    if targetName ~= "" then
+        local players = game.Players:GetPlayers()
+        for _, player in ipairs(players) do
+            if string.find(player.Name:lower(), targetName:lower()) then
+                -- 转移视角到目标玩家身上
+                local character = player.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    local humanoidRootPart = character.HumanoidRootPart
+                    local camera = game.Workspace.CurrentCamera
+                    camera.CameraSubject = humanoidRootPart
+                    camera.CameraType = Enum.CameraType.Custom
+                    break
+                end
+            end
+        end
+    end
 end)
