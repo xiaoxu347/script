@@ -132,4 +132,20 @@ end)
 
 -- 切换自由视角模式
 local function toggleFreeCam()
-    if cam.CameraType == Enum.CameraType.Scriptable 
+    if cam.CameraType == Enum.CameraType.Scriptable then
+        cam.CameraType = Enum.CameraType.Custom
+        -- 启用角色控制
+        player.Character.Humanoid.WalkSpeed = 16
+        player.Character.Humanoid.JumpPower = 50
+        -- 同步相机位置和朝向
+        cam.CFrame = player.Character.Head.CFrame
+    else
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = player.Character.Head.CFrame
+        -- 禁用角色控制
+        player.Character.Humanoid.WalkSpeed = 0
+        player.Character.Humanoid.JumpPower = 0
+    end
+end
+
+toggleButton.MouseButton1Click:Connect(toggleFreeCam)
