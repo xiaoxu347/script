@@ -1,0 +1,98 @@
+-- 获取服务
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+-- 创建一个 Highlight 模板
+local highlightTemplate = Instance.new("Highlight")
+highlightTemplate.Name = "InteractiveHighlight"
+highlightTemplate.FillColor = Color3.fromRGB(255, 0, 0) -- 高亮颜色
+highlightTemplate.OutlineColor = Color3.fromRGB(255, 255, 0) -- 边框颜色
+highlightTemplate.OutlineTransparency = 0.5
+highlightTemplate.FillTransparency = 0.3
+
+-- 获取玩家和摄像机
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+
+-- 存储高亮信息的表
+local highlights = {}
+
+-- 主要函数：高亮显示所有可互动的对象
+local function highlightInteractiveObjects()
+    -- 清除以前的高亮
+    for _, highlight in pairs(highlights) do
+        highlight:Destroy()
+    end
+    highlights = {}
+
+    -- 扫描整个 Workspace
+    local cameraCFrame = camera.CFrame
+    local cameraPosition = cameraCFrame.Position
+    local cameraSize = 500 -- 扫描区域的大小
+    local region = Region3.new(
+        cameraPosition - Vector3.new(cameraSize, cameraSize, cameraSize),
+        cameraPosition + Vector3.new(cameraSize, cameraSize, cameraSize)
+    )
+
+    local parts = Workspace:FindPartsInRegion3(region, nil, math.huge)
+
+    -- 为每个可互动对象创建高亮
+    for _, part in pairs(parts) do
+        if part:IsA("BasePart") and (part:FindFirstChildOfClass("ClickDetector") or part:FindFirstChildOfClass("ProximityPrompt")) then
+            if not highlights[part] then
+                local highlight = highlightTemplate:Clone()
+                highlight.Parent = part
+                highlight.Adornee = part
+                highlights[part] = highlight
+            end
+        end
+    end
+end
+
+-- 处理 ClickDetector 事件
+local function onClick(part)
+    if highlights[part] then
+        highlights[part]:Destroy()
+        highlights[part] = nil
+    end
+end
+
+-- 处理 ProximityPrompt 事件
+local function onPromptTriggered(part)
+    if highlights[part] then
+        highlights[part]:Destroy()
+        highlights[part] = nil
+    end
+end
+
+-- 监听 ClickDetector 事件
+local function setupClickDetectors()
+    for _, part in pairs(Workspace:GetDescendants()) do
+        if part:IsA("ClickDetector") then
+            part.MouseClick:Connect(function(player)
+                onClick(part.Parent)
+            end)
+        end
+    end
+end
+
+-- 监听 ProximityPrompt 事件
+local function setupProximityPrompts()
+    for _, part in pairs(Workspace:GetDescendants()) do
+        if part:IsA("ProximityPrompt") then
+            part.Triggered:Connect(function(player)
+                onPromptTriggered(part.Parent)
+            end)
+        end
+    end
+end
+
+-- 初始化
+setupClickDetectors()
+setupProximityPrompts()
+
+-- 定时更新高亮
+while true do
+    highlightInteractiveObjects()
+    wait(5) -- 每 5 秒更新一次
+end
