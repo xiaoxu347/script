@@ -1,0 +1,25 @@
+-- 获取 Lighting 服务
+local Lighting = game:GetService("Lighting")
+
+-- 创建一个全局照明对象
+local function setupLighting()
+    -- 设置环境光
+    Lighting.Ambient = Color3.fromRGB(255, 255, 255) -- 设置环境光的颜色
+    Lighting.Brightness = 2 -- 环境光的亮度，默认为 1
+
+    -- 如果有其他光源，请确保它们不会被环境光覆盖
+    -- 例如，设置昼夜循环光源（如果存在的话）
+    if Lighting:FindFirstChildOfClass("SunRaysEffect") then
+        Lighting.SunRaysEffect.Enabled = false -- 关闭阳光效果（如果存在的话）
+    end
+
+    -- 设置环境光照（可以添加自定义光源）
+    local newLight = Instance.new("PointLight")
+    newLight.Parent = Lighting
+    newLight.Color = Color3.fromRGB(255, 255, 255) -- 设置光源的颜色
+    newLight.Range = 100 -- 设置光源的范围
+    newLight.Brightness = 2 -- 设置光源的亮度
+end
+
+-- 执行照明设置
+setupLighting()
