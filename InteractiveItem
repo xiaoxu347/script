@@ -16,6 +16,7 @@ local camera = Workspace.CurrentCamera
 
 -- 存储高亮信息的表
 local highlights = {}
+local interactedParts = {} -- 用于存储已互动的部件
 
 -- 主要函数：高亮显示所有可互动的对象
 local function highlightInteractiveObjects()
@@ -39,7 +40,7 @@ local function highlightInteractiveObjects()
     -- 为每个可互动对象创建高亮
     for _, part in pairs(parts) do
         if part:IsA("BasePart") and (part:FindFirstChildOfClass("ClickDetector") or part:FindFirstChildOfClass("ProximityPrompt")) then
-            if not highlights[part] then
+            if not interactedParts[part] and not highlights[part] then
                 local highlight = highlightTemplate:Clone()
                 highlight.Parent = part
                 highlight.Adornee = part
@@ -55,6 +56,7 @@ local function onClick(part)
         highlights[part]:Destroy()
         highlights[part] = nil
     end
+    interactedParts[part] = true -- 标记部件为已互动
 end
 
 -- 处理 ProximityPrompt 事件
@@ -63,6 +65,7 @@ local function onPromptTriggered(part)
         highlights[part]:Destroy()
         highlights[part] = nil
     end
+    interactedParts[part] = true -- 标记部件为已互动
 end
 
 -- 监听 ClickDetector 事件
