@@ -1,0 +1,47 @@
+local player = game.Players.LocalPlayer
+local cam = workspace.CurrentCamera
+local RS = game:GetService("RunService")
+
+local marker = nil  -- 存储标记信息
+
+-- 创建标记点并返回 Part 对象
+local function createMarker(position)
+    local part = Instance.new("Part")
+    part.Size = Vector3.new(1, 1, 1)
+    part.Position = position
+    part.Anchored = true
+    part.CanCollide = false
+    part.Color = Color3.new(1, 0, 0)
+    part.Parent = workspace
+
+    -- 创建 BillboardGui 显示距离
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Size = UDim2.new(5, 0, 5, 0)
+    billboardGui.Adornee = part
+    billboardGui.AlwaysOnTop = true
+    billboardGui.Parent = part
+
+    local distanceLabel = Instance.new("TextLabel")
+    distanceLabel.Size = UDim2.new(1, 0, 1, 0)
+    distanceLabel.BackgroundTransparency = 1
+    distanceLabel.TextColor3 = Color3.new(1, 1, 1)
+    distanceLabel.TextStrokeTransparency = 0
+    distanceLabel.TextScaled = true
+    distanceLabel.Parent = billboardGui
+
+    return {part = part, label = distanceLabel}
+end
+
+-- 在角色当前位置创建标记点
+local character = player.Character or player.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+local position = rootPart.Position
+marker = createMarker(position)
+
+-- 更新距离显示
+RS.RenderStepped:Connect(function()
+    if marker then
+        local distance = (cam.CFrame.Position - marker.part.Position).Magnitude
+        marker.label.Text = string.format("Distance: %.1f", distance)
+    end
+end)
