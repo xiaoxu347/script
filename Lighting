@@ -4,8 +4,15 @@ local Lighting = game:GetService("Lighting")
 -- 创建一个全局照明对象
 local function setupLighting()
     -- 设置环境光
-    Lighting.Ambient = Color3.fromRGB(255, 255, 255) -- 设置环境光的颜色
-    Lighting.Brightness = 2 -- 环境光的亮度，默认为 1
+    Lighting.Ambient = Color3.fromRGB(255, 255, 255) -- 环境光颜色
+    Lighting.Brightness = 2 -- 环境光亮度
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255) -- 户外环境光
+    Lighting.ExposureCompensation = 1 -- 曝光补偿，增加亮度
+
+    -- 设置其他光源和效果
+    Lighting.FogColor = Color3.fromRGB(255, 255, 255) -- 雾的颜色
+    Lighting.FogStart = 0 -- 雾的开始距离
+    Lighting.FogEnd = 1000 -- 雾的结束距离
 
     -- 如果有其他光源，请确保它们不会被环境光覆盖
     -- 例如，设置昼夜循环光源（如果存在的话）
@@ -16,9 +23,10 @@ local function setupLighting()
     -- 设置环境光照（可以添加自定义光源）
     local newLight = Instance.new("PointLight")
     newLight.Parent = Lighting
-    newLight.Color = Color3.fromRGB(255, 255, 255) -- 设置光源的颜色
-    newLight.Range = 100 -- 设置光源的范围
-    newLight.Brightness = 2 -- 设置光源的亮度
+    newLight.Color = Color3.fromRGB(255, 255, 255) -- 光源颜色
+    newLight.Range = 1000 -- 光源的范围
+    newLight.Brightness = 2 -- 光源的亮度
+    newLight.Shadows = true -- 开启阴影
 end
 
 -- 执行照明设置
