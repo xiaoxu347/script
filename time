@@ -54,4 +54,86 @@ local function stopAction()
     end
 
     -- 禁用工具
-    for _, tool
+    for _, tool in ipairs(character:GetChildren()) do
+        if tool:IsA("Tool") then
+            table.insert(tools, tool)
+            tool.Enabled = false
+        end
+    end
+
+    -- 更新按钮文字
+    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChildOfClass("ScreenGui")
+    if screenGui then
+        local toggleButton = screenGui:FindFirstChildOfClass("TextButton")
+        if toggleButton then
+            toggleButton.Text = "Resume Action"
+        end
+    end
+end
+
+-- 恢复角色行动
+local function resumeAction()
+    if not isStopped then return end
+    isStopped = false
+
+    -- 恢复所有动画
+    for _, track in ipairs(animations) do
+        track:Play()
+    end
+    animations = {}
+
+    -- 恢复角色移动
+    humanoid.WalkSpeed = 16  -- 默认行走速度
+    humanoid.JumpPower = 50  -- 默认跳跃能力
+
+    -- 恢复角色物理状态
+    for part, anchored in pairs(originalStates) do
+        if part and part:IsA("BasePart") then
+            part.Anchored = anchored
+        end
+    end
+    originalStates = {}
+
+    -- 启用工具
+    for _, tool in ipairs(tools) do
+        if tool and tool:IsA("Tool") then
+            tool.Enabled = true
+        end
+    end
+    tools = {}
+
+    -- 更新按钮文字
+    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChildOfClass("ScreenGui")
+    if screenGui then
+        local toggleButton = screenGui:FindFirstChildOfClass("TextButton")
+        if toggleButton then
+            toggleButton.Text = "Stop Action"
+        end
+    end
+end
+
+-- 确保角色加载完毕后能够正确控制行动
+local function onCharacterAdded(char)
+    character = char
+    humanoid = character:WaitForChild("Humanoid")
+
+    if isStopped then
+        stopAction()
+    else
+        resumeAction()
+    end
+
+    -- 监听死亡事件
+    humanoid.Died:Connect(function()
+        -- 在角色死亡时，删除现有的 GUI
+        local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChildOfClass("ScreenGui")
+        if screenGui then
+            screenGui:Destroy()
+        end
+    end)
+end
+
+-- 初始设置
+createGUI()
+onCharacterAdded(character)
+player.CharacterAdded:Connect(onCharacterAdded)
