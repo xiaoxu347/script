@@ -1,82 +1,20 @@
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-
--- Initialize character and humanoid
-local function initializeCharacter()
-    local character = player.Character or player.CharacterAdded:Wait()
-    local humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
-    
-    if not humanoid then
-        warn("Humanoid is not available.")
-        return
-    end
-    
-    return character, humanoid
-end
-
-local character, humanoid = initializeCharacter()
-
-local animations = {}
-local originalStates = {}
-local tools = {}
-
--- Create BoolValue to store isStopped state
-local isStoppedValue = player:FindFirstChild("IsStopped")
-if not isStoppedValue then
-    isStoppedValue = Instance.new("BoolValue")
-    isStoppedValue.Name = "IsStopped"
-    isStoppedValue.Parent = player
-    isStoppedValue.Value = false
-end
-
--- Create GUI
-local function createGUI()
-    local playerGui = player:FindFirstChild("PlayerGui")
-    if not playerGui then
-        warn("PlayerGui not found.")
-        return
-    end
-
-    -- Remove existing GUI if present
-    local existingGui = playerGui:FindFirstChild("ActionControlGui")
-    if existingGui then
-        existingGui:Destroy()
-    end
-
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "ActionControlGui"
-    screenGui.Parent = playerGui
-
-    local toggleButton = Instance.new("TextButton")
-    toggleButton.Size = UDim2.new(0, 200, 0, 50)
-    toggleButton.Position = UDim2.new(0.5, -100, 0.1, 0)
-    toggleButton.Text = isStoppedValue.Value and "Resume Action" or "Stop Action"
-    toggleButton.Parent = screenGui
-    toggleButton.Active = true
-    toggleButton.Draggable = true
-
-    -- Check if the button was created
-    if toggleButton then
-        print("Toggle button created successfully.")
-        -- Button click event
-        toggleButton.MouseButton1Click:Connect(function()
-            print("Toggle button clicked. Current state:", isStoppedValue.Value)
-            if isStoppedValue.Value then
-                resumeAction()
-            else
-                stopAction()
-            end
-        end)
+-- Button click event
+toggleButton.MouseButton1Click:Connect(function()
+    print("Toggle button clicked. Current state:", isStoppedValue.Value)
+    if isStoppedValue.Value then
+        print("Calling resumeAction()")
+        resumeAction()
     else
-        warn("Toggle button was not created successfully.")
+        print("Calling stopAction()")
+        stopAction()
     end
-end
+end)
 
 -- Stop character action
 local function stopAction()
+    print("stopAction() called")
     if isStoppedValue.Value then return end
     isStoppedValue.Value = true
-    print("stopAction called")
 
     if humanoid then
         -- Stop all animations
@@ -123,9 +61,9 @@ end
 
 -- Resume character action
 local function resumeAction()
+    print("resumeAction() called")
     if not isStoppedValue.Value then return end
     isStoppedValue.Value = false
-    print("resumeAction called")
 
     -- Resume all animations
     for _, track in ipairs(animations) do
@@ -168,30 +106,4 @@ local function resumeAction()
     else
         warn("ActionControlGui not found in PlayerGui.")
     end
-end
-
--- Ensure character is properly initialized
-player.CharacterAdded:Connect(function(char)
-    character = char
-    humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
-    if not humanoid then
-        warn("Humanoid is not available when CharacterAdded.")
-        return
-    end
-    createGUI()
-    if isStoppedValue and isStoppedValue.Value then
-        stopAction()
-    else
-        resumeAction()
-    end
-end)
-
--- Initial GUI creation
-createGUI()
-
--- Ensure initial state is applied correctly
-if isStoppedValue and isStoppedValue.Value then
-    stopAction()
-else
-    resumeAction()
 end
