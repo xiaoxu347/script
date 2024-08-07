@@ -39,6 +39,7 @@ local function createGUI()
 
     -- Check if the button was created
     if toggleButton then
+        print("Toggle button created successfully.")
         -- 按钮点击事件
         toggleButton.MouseButton1Click:Connect(function()
             if isStoppedValue.Value then
