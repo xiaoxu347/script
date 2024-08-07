@@ -1,56 +1,75 @@
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
+
+local humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
 
 local animations = {}
-local isStopped = false
 local originalStates = {}
 local tools = {}
 
--- 创建 GUI 按钮
+-- 创建 BoolValue 来存储 isStopped 状态，如果不存在则创建
+local isStoppedValue = player:FindFirstChild("IsStopped")
+if not isStoppedValue then
+    isStoppedValue = Instance.new("BoolValue")
+    isStoppedValue.Name = "IsStopped"
+    isStoppedValue.Parent = player
+    isStoppedValue.Value = false
+end
+
+-- 创建 GUI
 local function createGUI()
-    -- 清除现有的 ScreenGui
-    local existingGui = player:WaitForChild("PlayerGui"):FindFirstChild("ActionToggleGui")
+    -- Remove existing GUI if present
+    local existingGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionControlGui")
     if existingGui then
         existingGui:Destroy()
     end
 
     local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "ActionToggleGui"
+    screenGui.Name = "ActionControlGui"
     screenGui.Parent = player:WaitForChild("PlayerGui")
 
     local toggleButton = Instance.new("TextButton")
     toggleButton.Size = UDim2.new(0, 200, 0, 50)
     toggleButton.Position = UDim2.new(0.5, -100, 0.1, 0)
-    toggleButton.Text = "Stop Action"
+    toggleButton.Text = isStoppedValue.Value and "Resume Action" or "Stop Action"
     toggleButton.Parent = screenGui
     toggleButton.Active = true
     toggleButton.Draggable = true
 
-    toggleButton.MouseButton1Click:Connect(function()
-        if isStopped then
-            resumeAction()
-        else
-            stopAction()
-        end
-    end)
+    -- Check if the button was created
+    if toggleButton then
+        -- 按钮点击事件
+        toggleButton.MouseButton1Click:Connect(function()
+            if isStoppedValue.Value then
+                resumeAction()
+            else
+                stopAction()
+            end
+        end)
+    else
+        warn("Toggle button was not created successfully.")
+    end
 end
 
 -- 停止角色行动
 local function stopAction()
-    if isStopped then return end
-    isStopped = true
+    if isStoppedValue.Value then return end
+    isStoppedValue.Value = true
 
-    -- 停止所有动画
-    for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
-        track:Stop()
-        table.insert(animations, track)
+    if humanoid then
+        -- 停止所有动画
+        for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+            track:Stop()
+            table.insert(animations, track)
+        end
+
+        -- 停止角色移动
+        humanoid.WalkSpeed = 0
+        humanoid.JumpPower = 0
+    else
+        warn("Humanoid is not available.")
     end
-
-    -- 停止角色移动
-    humanoid.WalkSpeed = 0
-    humanoid.JumpPower = 0
 
     -- 保存并停止角色物理状态
     for _, part in ipairs(character:GetDescendants()) do
@@ -68,20 +87,23 @@ local function stopAction()
         end
     end
 
-    -- 更新按钮文字
-    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionToggleGui")
+    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionControlGui")
     if screenGui then
         local toggleButton = screenGui:FindFirstChildOfClass("TextButton")
         if toggleButton then
             toggleButton.Text = "Resume Action"
+        else
+            warn("Toggle button not found in ActionControlGui.")
         end
+    else
+        warn("ActionControlGui not found in PlayerGui.")
     end
 end
 
 -- 恢复角色行动
 local function resumeAction()
-    if not isStopped then return end
-    isStopped = false
+    if not isStoppedValue.Value then return end
+    isStoppedValue.Value = false
 
     -- 恢复所有动画
     for _, track in ipairs(animations) do
@@ -90,8 +112,12 @@ local function resumeAction()
     animations = {}
 
     -- 恢复角色移动
-    humanoid.WalkSpeed = 16  -- 默认行走速度
-    humanoid.JumpPower = 50  -- 默认跳跃能力
+    if humanoid then
+        humanoid.WalkSpeed = 16  -- 默认行走速度
+        humanoid.JumpPower = 50  -- 默认跳跃能力
+    else
+        warn("Humanoid is not available.")
+    end
 
     -- 恢复角色物理状态
     for part, anchored in pairs(originalStates) do
@@ -109,35 +135,37 @@ local function resumeAction()
     end
     tools = {}
 
-    -- 更新按钮文字
-    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionToggleGui")
+    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionControlGui")
     if screenGui then
         local toggleButton = screenGui:FindFirstChildOfClass("TextButton")
         if toggleButton then
             toggleButton.Text = "Stop Action"
+        else
+            warn("Toggle button not found in ActionControlGui.")
         end
+    else
+        warn("ActionControlGui not found in PlayerGui.")
     end
 end
 
 -- 确保角色加载完毕后能够正确控制行动
-local function onCharacterAdded(char)
+player.CharacterAdded:Connect(function(char)
     character = char
-    humanoid = character:WaitForChild("Humanoid")
-
-    -- 监听死亡事件
-    humanoid.Died:Connect(function()
-        -- 在角色死亡时，删除现有的 GUI
-        local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionToggleGui")
-        if screenGui then
-            screenGui:Destroy()
-        end
-    end)
-
-    -- 创建 GUI
+    humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
     createGUI()
-end
+    if isStoppedValue and isStoppedValue.Value then
+        stopAction()
+    else
+        resumeAction()
+    end
+end)
 
--- 初始设置
+-- 初始创建 GUI
 createGUI()
-onCharacterAdded(character)
-player.CharacterAdded:Connect(onCharacterAdded)
+
+-- 确保初始状态正确应用
+if isStoppedValue and isStoppedValue.Value then
+    stopAction()
+else
+    resumeAction()
+end
