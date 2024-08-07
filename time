@@ -1,0 +1,109 @@
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+local animations = {}
+local isStopped = false
+local originalStates = {}
+local tools = {}
+
+-- 创建 GUI 按钮
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0, 200, 0, 50)
+toggleButton.Position = UDim2.new(0.5, -100, 0.1, 0)
+toggleButton.Text = "Stop Action"
+toggleButton.Parent = screenGui
+toggleButton.Active = true
+toggleButton.Draggable = true
+
+-- 停止角色行动
+local function stopAction()
+    if isStopped then return end
+    isStopped = true
+
+    -- 停止所有动画
+    for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+        track:Stop()
+        table.insert(animations, track)
+    end
+
+    -- 停止角色移动
+    humanoid.WalkSpeed = 0
+    humanoid.JumpPower = 0
+
+    -- 保存并停止角色物理状态
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            originalStates[part] = part.Anchored
+            part.Anchored = true
+        end
+    end
+
+    -- 禁用工具
+    for _, tool in ipairs(character:GetChildren()) do
+        if tool:IsA("Tool") then
+            table.insert(tools, tool)
+            tool.Enabled = false
+        end
+    end
+
+    toggleButton.Text = "Resume Action"
+end
+
+-- 恢复角色行动
+local function resumeAction()
+    if not isStopped then return end
+    isStopped = false
+
+    -- 恢复所有动画
+    for _, track in ipairs(animations) do
+        track:Play()
+    end
+    animations = {}
+
+    -- 恢复角色移动
+    humanoid.WalkSpeed = 16  -- 默认行走速度
+    humanoid.JumpPower = 50  -- 默认跳跃能力
+
+    -- 恢复角色物理状态
+    for part, anchored in pairs(originalStates) do
+        if part and part:IsA("BasePart") then
+            part.Anchored = anchored
+        end
+    end
+    originalStates = {}
+
+    -- 启用工具
+    for _, tool in ipairs(tools) do
+        if tool and tool:IsA("Tool") then
+            tool.Enabled = true
+        end
+    end
+    tools = {}
+
+    toggleButton.Text = "Stop Action"
+end
+
+-- 按钮点击事件
+toggleButton.MouseButton1Click:Connect(function()
+    if isStopped then
+        resumeAction()
+    else
+        stopAction()
+    end
+end)
+
+-- 确保角色加载完毕后能够正确控制行动
+player.CharacterAdded:Connect(function(char)
+    character = char
+    humanoid = character:WaitForChild("Humanoid")
+    if isStopped then
+        stopAction()
+    else
+        resumeAction()
+    end
+end)
