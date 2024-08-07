@@ -1,16 +1,4 @@
--- Button click event
-toggleButton.MouseButton1Click:Connect(function()
-    print("Toggle button clicked. Current state:", isStoppedValue.Value)
-    if isStoppedValue.Value then
-        print("Calling resumeAction()")
-        resumeAction()
-    else
-        print("Calling stopAction()")
-        stopAction()
-    end
-end)
-
--- Stop character action
+-- Ensure functions are defined before use
 local function stopAction()
     print("stopAction() called")
     if isStoppedValue.Value then return end
@@ -59,7 +47,6 @@ local function stopAction()
     end
 end
 
--- Resume character action
 local function resumeAction()
     print("resumeAction() called")
     if not isStoppedValue.Value then return end
@@ -107,3 +94,15 @@ local function resumeAction()
         warn("ActionControlGui not found in PlayerGui.")
     end
 end
+
+-- Button click event
+toggleButton.MouseButton1Click:Connect(function()
+    print("Toggle button clicked. Current state:", isStoppedValue.Value)
+    if isStoppedValue.Value then
+        print("Calling resumeAction()")
+        resumeAction()
+    else
+        print("Calling stopAction()")
+        stopAction()
+    end
+end)
