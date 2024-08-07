@@ -1,8 +1,19 @@
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
 
-local humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
+local function initializeCharacter()
+    local character = player.Character or player.CharacterAdded:Wait()
+    local humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
+    
+    if not humanoid then
+        warn("Humanoid is not available.")
+        return
+    end
+    
+    return character, humanoid
+end
+
+local character, humanoid = initializeCharacter()
 
 local animations = {}
 local originalStates = {}
@@ -19,15 +30,21 @@ end
 
 -- 创建 GUI
 local function createGUI()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then
+        warn("PlayerGui not found.")
+        return
+    end
+
     -- Remove existing GUI if present
-    local existingGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionControlGui")
+    local existingGui = playerGui:FindFirstChild("ActionControlGui")
     if existingGui then
         existingGui:Destroy()
     end
 
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "ActionControlGui"
-    screenGui.Parent = player:WaitForChild("PlayerGui")
+    screenGui.Parent = playerGui
 
     local toggleButton = Instance.new("TextButton")
     toggleButton.Size = UDim2.new(0, 200, 0, 50)
@@ -37,10 +54,8 @@ local function createGUI()
     toggleButton.Active = true
     toggleButton.Draggable = true
 
-    -- Check if the button was created
     if toggleButton then
         print("Toggle button created successfully.")
-        -- 按钮点击事件
         toggleButton.MouseButton1Click:Connect(function()
             if isStoppedValue.Value then
                 resumeAction()
@@ -69,7 +84,7 @@ local function stopAction()
         humanoid.WalkSpeed = 0
         humanoid.JumpPower = 0
     else
-        warn("Humanoid is not available.")
+        warn("Humanoid is not available when stopping action.")
     end
 
     -- 保存并停止角色物理状态
@@ -117,7 +132,7 @@ local function resumeAction()
         humanoid.WalkSpeed = 16  -- 默认行走速度
         humanoid.JumpPower = 50  -- 默认跳跃能力
     else
-        warn("Humanoid is not available.")
+        warn("Humanoid is not available when resuming action.")
     end
 
     -- 恢复角色物理状态
@@ -153,6 +168,10 @@ end
 player.CharacterAdded:Connect(function(char)
     character = char
     humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
+    if not humanoid then
+        warn("Humanoid is not available when CharacterAdded.")
+        return
+    end
     createGUI()
     if isStoppedValue and isStoppedValue.Value then
         stopAction()
