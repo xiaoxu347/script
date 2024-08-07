@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
+-- Function to initialize character and humanoid
 local function initializeCharacter()
     local character = player.Character or player.CharacterAdded:Wait()
     local humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
@@ -19,7 +20,7 @@ local animations = {}
 local originalStates = {}
 local tools = {}
 
--- 创建 BoolValue 来存储 isStopped 状态，如果不存在则创建
+-- Create BoolValue to store isStopped state if it does not exist
 local isStoppedValue = player:FindFirstChild("IsStopped")
 if not isStoppedValue then
     isStoppedValue = Instance.new("BoolValue")
@@ -28,7 +29,7 @@ if not isStoppedValue then
     isStoppedValue.Value = false
 end
 
--- 创建 GUI
+-- Create GUI
 local function createGUI()
     local playerGui = player:FindFirstChild("PlayerGui")
     if not playerGui then
@@ -54,8 +55,10 @@ local function createGUI()
     toggleButton.Active = true
     toggleButton.Draggable = true
 
+    -- Check if the button was created
     if toggleButton then
         print("Toggle button created successfully.")
+        -- Button click event
         toggleButton.MouseButton1Click:Connect(function()
             if isStoppedValue.Value then
                 resumeAction()
@@ -68,26 +71,26 @@ local function createGUI()
     end
 end
 
--- 停止角色行动
+-- Stop character action
 local function stopAction()
     if isStoppedValue.Value then return end
     isStoppedValue.Value = true
 
     if humanoid then
-        -- 停止所有动画
+        -- Stop all animations
         for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
             track:Stop()
             table.insert(animations, track)
         end
 
-        -- 停止角色移动
+        -- Stop character movement
         humanoid.WalkSpeed = 0
         humanoid.JumpPower = 0
     else
         warn("Humanoid is not available when stopping action.")
     end
 
-    -- 保存并停止角色物理状态
+    -- Save and stop character physical state
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
             originalStates[part] = part.Anchored
@@ -95,7 +98,7 @@ local function stopAction()
         end
     end
 
-    -- 禁用工具
+    -- Disable tools
     for _, tool in ipairs(character:GetChildren()) do
         if tool:IsA("Tool") then
             table.insert(tools, tool)
@@ -116,26 +119,26 @@ local function stopAction()
     end
 end
 
--- 恢复角色行动
+-- Resume character action
 local function resumeAction()
     if not isStoppedValue.Value then return end
     isStoppedValue.Value = false
 
-    -- 恢复所有动画
+    -- Resume all animations
     for _, track in ipairs(animations) do
         track:Play()
     end
     animations = {}
 
-    -- 恢复角色移动
+    -- Resume character movement
     if humanoid then
-        humanoid.WalkSpeed = 16  -- 默认行走速度
-        humanoid.JumpPower = 50  -- 默认跳跃能力
+        humanoid.WalkSpeed = 16  -- Default walk speed
+        humanoid.JumpPower = 50  -- Default jump power
     else
         warn("Humanoid is not available when resuming action.")
     end
 
-    -- 恢复角色物理状态
+    -- Restore character physical state
     for part, anchored in pairs(originalStates) do
         if part and part:IsA("BasePart") then
             part.Anchored = anchored
@@ -143,7 +146,7 @@ local function resumeAction()
     end
     originalStates = {}
 
-    -- 启用工具
+    -- Enable tools
     for _, tool in ipairs(tools) do
         if tool and tool:IsA("Tool") then
             tool.Enabled = true
@@ -164,7 +167,7 @@ local function resumeAction()
     end
 end
 
--- 确保角色加载完毕后能够正确控制行动
+-- Ensure character is properly initialized
 player.CharacterAdded:Connect(function(char)
     character = char
     humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
@@ -180,10 +183,10 @@ player.CharacterAdded:Connect(function(char)
     end
 end)
 
--- 初始创建 GUI
+-- Initial GUI creation
 createGUI()
 
--- 确保初始状态正确应用
+-- Ensure initial state is applied correctly
 if isStoppedValue and isStoppedValue.Value then
     stopAction()
 else
