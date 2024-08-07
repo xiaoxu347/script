@@ -124,12 +124,6 @@ local function onCharacterAdded(char)
     character = char
     humanoid = character:WaitForChild("Humanoid")
 
-    if isStopped then
-        stopAction()
-    else
-        resumeAction()
-    end
-
     -- 监听死亡事件
     humanoid.Died:Connect(function()
         -- 在角色死亡时，删除现有的 GUI
