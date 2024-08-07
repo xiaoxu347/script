@@ -8,9 +8,16 @@ local isStopped = false
 local originalStates = {}
 local tools = {}
 
--- 创建 GUI
+-- 创建 GUI 按钮
 local function createGUI()
+    -- 清除现有的 ScreenGui
+    local existingGui = player:WaitForChild("PlayerGui"):FindFirstChild("ActionToggleGui")
+    if existingGui then
+        existingGui:Destroy()
+    end
+
     local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ActionToggleGui"
     screenGui.Parent = player:WaitForChild("PlayerGui")
 
     local toggleButton = Instance.new("TextButton")
@@ -62,7 +69,7 @@ local function stopAction()
     end
 
     -- 更新按钮文字
-    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChildOfClass("ScreenGui")
+    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionToggleGui")
     if screenGui then
         local toggleButton = screenGui:FindFirstChildOfClass("TextButton")
         if toggleButton then
@@ -103,7 +110,7 @@ local function resumeAction()
     tools = {}
 
     -- 更新按钮文字
-    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChildOfClass("ScreenGui")
+    local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionToggleGui")
     if screenGui then
         local toggleButton = screenGui:FindFirstChildOfClass("TextButton")
         if toggleButton then
@@ -126,11 +133,14 @@ local function onCharacterAdded(char)
     -- 监听死亡事件
     humanoid.Died:Connect(function()
         -- 在角色死亡时，删除现有的 GUI
-        local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChildOfClass("ScreenGui")
+        local screenGui = player:FindFirstChild("PlayerGui"):FindFirstChild("ActionToggleGui")
         if screenGui then
             screenGui:Destroy()
         end
     end)
+
+    -- 创建 GUI
+    createGUI()
 end
 
 -- 初始设置
