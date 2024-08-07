@@ -1,7 +1,7 @@
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
--- Function to initialize character and humanoid
+-- Initialize character and humanoid
 local function initializeCharacter()
     local character = player.Character or player.CharacterAdded:Wait()
     local humanoid = character:WaitForChild("Humanoid", 10)  -- Wait for Humanoid with a timeout
@@ -20,7 +20,7 @@ local animations = {}
 local originalStates = {}
 local tools = {}
 
--- Create BoolValue to store isStopped state if it does not exist
+-- Create BoolValue to store isStopped state
 local isStoppedValue = player:FindFirstChild("IsStopped")
 if not isStoppedValue then
     isStoppedValue = Instance.new("BoolValue")
@@ -60,6 +60,7 @@ local function createGUI()
         print("Toggle button created successfully.")
         -- Button click event
         toggleButton.MouseButton1Click:Connect(function()
+            print("Toggle button clicked. Current state:", isStoppedValue.Value)
             if isStoppedValue.Value then
                 resumeAction()
             else
@@ -75,6 +76,7 @@ end
 local function stopAction()
     if isStoppedValue.Value then return end
     isStoppedValue.Value = true
+    print("stopAction called")
 
     if humanoid then
         -- Stop all animations
@@ -123,6 +125,7 @@ end
 local function resumeAction()
     if not isStoppedValue.Value then return end
     isStoppedValue.Value = false
+    print("resumeAction called")
 
     -- Resume all animations
     for _, track in ipairs(animations) do
