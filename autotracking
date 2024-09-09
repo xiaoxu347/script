@@ -17,6 +17,7 @@ local skillCooldown = 3  -- Cooldown time in seconds for the skill
 local skillQueue = {"Flowing Water", "Lethal Whirlwind Stream", "Hunter's Grasp", "Prey's Peril"}  -- Skill rotation list
 local currentSkillIndex = 1  -- Track the current skill in the queue
 local humanoidDiedConnection  -- Store the Died connection for cleanup
+local minimumFollowDistance = 3  -- Minimum distance to maintain when following target
 
 -- Function to stop tracking
 local function stopTracking()
@@ -136,8 +137,10 @@ local function trackAndAimAtPlayer()
                 local playerPosition = character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position
                 local distance = (targetPosition - playerPosition).Magnitude
 
-                -- Move the player's character towards the target
-                humanoid:MoveTo(targetPosition)
+                -- Only move towards the target if the distance is greater than the minimum follow distance
+                if distance > minimumFollowDistance then
+                    humanoid:MoveTo(targetPosition - (targetPosition - playerPosition).Unit * minimumFollowDistance)
+                end
 
                 -- Update the camera to aim at the target player
                 local cameraPosition = camera.CFrame.Position
