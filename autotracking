@@ -13,6 +13,7 @@ local targetPlayerName = "yaoshen21"  -- Replace with the target player's name
 local connection  -- Used to disconnect and reconnect the tracking function
 local isAttacking = false  -- Prevent overlapping attack sequences
 local isDodging = false  -- Prevent overlapping dodge sequences
+local lastDodgeTime = 0  -- Track the last time a dodge was performed
 
 -- Function to stop tracking
 local function stopTracking()
@@ -75,8 +76,10 @@ end
 
 -- Function to perform side dodge
 local function performSideDodge(targetCharacter)
-    if isDodging then return end  -- Prevent multiple dodge triggers
+    local currentTime = tick()
+    if isDodging or (currentTime - lastDodgeTime) < 3 then return end  -- Prevent multiple dodge triggers and ensure cooldown
     isDodging = true
+    lastDodgeTime = currentTime  -- Update the last dodge time
 
     -- Temporarily shift camera to the right of the target
     local function shiftCameraRight(targetPosition)
@@ -95,7 +98,7 @@ local function performSideDodge(targetCharacter)
     if targetCharacter:FindFirstChild("HumanoidRootPart") then
         shiftCameraRight(targetCharacter.HumanoidRootPart.Position)  -- Temporarily lock camera to the right
         performDash()  -- Perform the dash action
-        wait(1)  -- Increased delay to ensure the side dodge is noticeable
+        wait(1.5)  -- Extended delay to ensure the side dodge is noticeable
         resetCamera(targetCharacter.HumanoidRootPart.Position)  -- Reset the camera lock to the center
     end
 
