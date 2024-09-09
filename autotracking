@@ -1,0 +1,36 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- 获取本地玩家 (仅限客户端脚本)
+local localPlayer = Players.LocalPlayer
+local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- 设置跟踪的目标玩家名字
+local targetPlayerName = "TargetPlayerName"  -- 将此处替换为你要跟踪的玩家名字
+
+-- 处理目标玩家逻辑
+local function trackPlayer()
+    local targetPlayer = Players:FindFirstChild(targetPlayerName)
+
+    if targetPlayer then
+        local targetCharacter = targetPlayer.Character or targetPlayer.CharacterAdded:Wait()
+
+        -- 持续更新，进行跟踪
+        RunService.RenderStepped:Connect(function()
+            if targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart") then
+                local targetPosition = targetCharacter.HumanoidRootPart.Position
+                humanoid:MoveTo(targetPosition)
+            end
+        end)
+    else
+        warn("未找到目标玩家: " .. targetPlayerName)
+    end
+end
+
+-- 当玩家角色加载完毕后开始跟踪
+if character then
+    trackPlayer()
+else
+    localPlayer.CharacterAdded:Connect(trackPlayer)
+end
