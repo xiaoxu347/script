@@ -12,6 +12,7 @@ local camera = Workspace.CurrentCamera
 local targetPlayerName = "yaoshen21"  -- Replace with the target player's name
 local connection  -- Used to disconnect and reconnect the tracking function
 local isAttacking = false  -- To prevent overlapping attack sequences
+local isSidestepping = false  -- To prevent overlapping sidestep sequences
 
 -- Function to stop tracking
 local function stopTracking()
@@ -32,6 +33,28 @@ local function performDash()
     }
 
     game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
+end
+
+-- Function to perform sidestep (move right and dash)
+local function performSidestep()
+    if isSidestepping then return end  -- Prevent multiple sidesteps at once
+    isSidestepping = true
+
+    -- Execute right movement and dash simultaneously
+    local moveRightArgs = {
+        [1] = {
+            ["Key"] = Enum.KeyCode.D,  -- Right movement key
+            ["Goal"] = "KeyPress"
+        }
+    }
+    
+    -- Trigger right movement and dash
+    game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(moveRightArgs))
+    performDash()
+    
+    -- Short delay to simulate the sidestep action
+    wait(0.5)
+    isSidestepping = false
 end
 
 -- Function to start attacking when within 7 meters
@@ -100,6 +123,15 @@ local function trackAndAimAtPlayer()
                 -- Update the camera to aim at the target player
                 local cameraPosition = camera.CFrame.Position
                 camera.CFrame = CFrame.lookAt(cameraPosition, targetPosition)
+
+                -- Calculate the relative position of the target to the player
+                local relativePosition = (targetPosition - cameraPosition).unit
+                local rightDirection = camera.CFrame.RightVector
+
+                -- Check distance and perform sidestep if within 30 meters and target is on the right
+                if distance <= 30 and relativePosition:Dot(rightDirection) > 0.5 then
+                    performSidestep()
+                end
 
                 -- Check distance and perform dash if within 35 meters
                 if distance <= 35 then
