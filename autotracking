@@ -7,7 +7,7 @@ local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
 -- 设置跟踪的目标玩家名字
-local targetPlayerName = "TargetPlayerName"  -- 将此处替换为你要跟踪的玩家名字
+local targetPlayerName = "yaoshen21"  -- 将此处替换为你要跟踪的玩家名字
 
 -- 处理目标玩家逻辑
 local function trackPlayer()
