@@ -4,33 +4,31 @@ local Workspace = game:GetService("Workspace")
 
 -- 获取本地玩家和摄像机
 local localPlayer = Players.LocalPlayer
-local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
 local camera = Workspace.CurrentCamera
 
--- 设置跟踪的目标玩家名字
-local targetPlayerName = "yaoshen21"  -- 将此处替换为你要跟踪的玩家名字
+-- 设置要瞄准的目标玩家名字
+local targetPlayerName = "yaoshen21"  -- 替换为目标玩家名字
 
--- 确保目标玩家存在并且有角色生成
-local function trackPlayer()
+-- 寻找目标玩家并瞄准
+local function aimAtPlayer()
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
 
     if targetPlayer then
         local targetCharacter = targetPlayer.Character or targetPlayer.CharacterAdded:Wait()
 
-        -- 持续更新，进行跟踪并调整摄像机
+        -- 持续更新摄像机的朝向
         RunService.RenderStepped:Connect(function()
             if targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart") then
                 local targetPosition = targetCharacter.HumanoidRootPart.Position
 
-                -- 玩家角色跟踪移动
-                humanoid:MoveTo(targetPosition)
+                -- 获取摄像机当前的位置
+                local cameraPosition = camera.CFrame.Position
 
-                -- 更新摄像机位置，让摄像机跟随目标玩家
-                camera.CameraType = Enum.CameraType.Scriptable  -- 切换到脚本控制模式
-                local cameraOffset = Vector3.new(0, 10, -20)  -- 调整摄像机偏移量
-                local cameraPosition = targetPosition + cameraOffset
-                camera.CFrame = CFrame.new(cameraPosition, targetPosition)
+                -- 计算从摄像机到目标玩家的位置向量
+                local direction = (targetPosition - cameraPosition).Unit
+
+                -- 通过 CFrame.lookAt 方法将摄像机朝向目标
+                camera.CFrame = CFrame.lookAt(cameraPosition, targetPosition)
             end
         end)
     else
@@ -38,9 +36,5 @@ local function trackPlayer()
     end
 end
 
--- 当玩家角色加载完毕后开始跟踪
-if character then
-    trackPlayer()
-else
-    localPlayer.CharacterAdded:Connect(trackPlayer)
-end
+-- 当玩家进入游戏时开始瞄准目标玩家
+aimAtPlayer()
