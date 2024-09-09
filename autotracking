@@ -10,15 +10,29 @@ local camera = Workspace.CurrentCamera
 
 -- 设置要瞄准和跟踪的目标玩家名字
 local targetPlayerName = "yaoshen21"  -- 替换为目标玩家的名字
+local connection  -- 用于断开和重新连接瞄准功能
+
+local function stopTracking()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+end
 
 local function trackAndAimAtPlayer()
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
 
     if targetPlayer then
         local targetCharacter = targetPlayer.Character or targetPlayer.CharacterAdded:Wait()
+        local targetHumanoid = targetCharacter:WaitForChild("Humanoid")
+
+        -- 监听目标玩家的死亡事件
+        targetHumanoid.Died:Connect(function()
+            stopTracking()  -- 目标玩家死亡时停止跟踪和瞄准
+        end)
 
         -- 持续更新，进行角色跟踪和摄像机瞄准
-        RunService.RenderStepped:Connect(function()
+        connection = RunService.RenderStepped:Connect(function()
             if targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart") then
                 local targetPosition = targetCharacter.HumanoidRootPart.Position
 
@@ -28,12 +42,16 @@ local function trackAndAimAtPlayer()
                 -- 获取摄像机当前的位置
                 local cameraPosition = camera.CFrame.Position
 
-                -- 计算从摄像机到目标玩家的位置向量
-                local direction = (targetPosition - cameraPosition).Unit
-
                 -- 更新摄像机位置，让摄像机瞄准目标玩家
                 camera.CFrame = CFrame.lookAt(cameraPosition, targetPosition)
             end
+        end)
+
+        -- 监听目标玩家的重生事件，重启跟踪
+        targetPlayer.CharacterAdded:Connect(function(newCharacter)
+            targetCharacter = newCharacter
+            local newHumanoid = newCharacter:WaitForChild("Humanoid")
+            trackAndAimAtPlayer()  -- 重新开始瞄准新角色
         end)
     else
         warn("未找到目标玩家: " .. targetPlayerName)
