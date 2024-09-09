@@ -74,23 +74,38 @@ local function stopAttacking()
     isAttacking = false
 end
 
--- Function to perform a skill using item bar slots (1, 2, 3, 4)
-local function performSkill()
+-- Function to perform a skill using specific skill names
+local function performSkill(skillName)
     local currentTime = tick()
     if (currentTime - lastSkillUseTime) < skillCooldown then return end  -- Ensure cooldown is respected
 
-    -- Execute a skill using item slot 1 (you can adjust the slot number as needed)
-    local function useSkill(slotNumber)
-        local args = {
-            [1] = {
-                ["Slot"] = slotNumber,  -- Item bar slot number (1, 2, 3, or 4)
-                ["Goal"] = "UseItem"    -- Action to use the item in the specified slot
+    -- Execute the skill based on the provided skill name
+    local function useSkillByName(skillName)
+        local tool = localPlayer.Backpack:FindFirstChild(skillName)
+        if tool then
+            local args = {
+                [1] = {
+                    ["Tool"] = tool,
+                    ["Goal"] = "Console Move"
+                }
             }
-        }
-        game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
+            game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
+        else
+            warn("Skill not found in backpack: " .. skillName)
+        end
     end
 
-    useSkill(1)  -- Replace with 2, 3, or 4 to use other slots as needed
+    -- Use the corresponding skill
+    if skillName == "Flowing Water" then
+        useSkillByName("Flowing Water")
+    elseif skillName == "Lethal Whirlwind Stream" then
+        useSkillByName("Lethal Whirlwind Stream")
+    elseif skillName == "Hunter's Grasp" then
+        useSkillByName("Hunter's Grasp")
+    elseif skillName == "Prey's Peril" then
+        useSkillByName("Prey's Peril")
+    end
+
     lastSkillUseTime = currentTime  -- Update the last skill use time
 end
 
@@ -129,7 +144,7 @@ local function trackAndAimAtPlayer()
 
                 -- Check distance and decide between attacking or using a skill
                 if distance <= 7 then
-                    performSkill()  -- Use skill when within range
+                    performSkill("Flowing Water")  -- Use "Flowing Water" skill when within range
                     startAttacking()  -- Attack when not on cooldown
                 else
                     stopAttacking()  -- Stop attacking when outside 7 meters
