@@ -2,16 +2,17 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
--- 获取本地玩家和摄像机
+-- Get local player and camera
 local localPlayer = Players.LocalPlayer
 local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local camera = Workspace.CurrentCamera
 
--- 设置要瞄准和跟踪的目标玩家名字
-local targetPlayerName = "yaoshen21"  -- 替换为目标玩家的名字
-local connection  -- 用于断开和重新连接瞄准功能
+-- Set the target player's name for tracking and aiming
+local targetPlayerName = "yaoshen21"  -- Replace with the target player's name
+local connection  -- Used to disconnect and reconnect the tracking function
 
+-- Function to stop tracking
 local function stopTracking()
     if connection then
         connection:Disconnect()
@@ -19,6 +20,20 @@ local function stopTracking()
     end
 end
 
+-- Function to perform dash (sprint) action
+local function performDash()
+    local args = {
+        [1] = {
+            ["Dash"] = Enum.KeyCode.W,  -- Adjust if needed; this simulates a dash forward
+            ["Key"] = Enum.KeyCode.Q,   -- The key associated with the dash action
+            ["Goal"] = "KeyPress"
+        }
+    }
+
+    game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
+end
+
+-- Function to track and aim at the target player
 local function trackAndAimAtPlayer()
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
 
@@ -26,39 +41,44 @@ local function trackAndAimAtPlayer()
         local targetCharacter = targetPlayer.Character or targetPlayer.CharacterAdded:Wait()
         local targetHumanoid = targetCharacter:WaitForChild("Humanoid")
 
-        -- 监听目标玩家的死亡事件
+        -- Listen for the target player's death event
         targetHumanoid.Died:Connect(function()
-            stopTracking()  -- 目标玩家死亡时停止跟踪和瞄准
+            stopTracking()  -- Stop tracking and aiming when the target player dies
         end)
 
-        -- 持续更新，进行角色跟踪和摄像机瞄准
+        -- Continuously update tracking and aiming
         connection = RunService.RenderStepped:Connect(function()
             if targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart") then
                 local targetPosition = targetCharacter.HumanoidRootPart.Position
+                local playerPosition = character.HumanoidRootPart.Position
+                local distance = (targetPosition - playerPosition).Magnitude
 
-                -- 玩家角色跟踪移动
+                -- Move the player's character towards the target
                 humanoid:MoveTo(targetPosition)
 
-                -- 获取摄像机当前的位置
+                -- Update the camera to aim at the target player
                 local cameraPosition = camera.CFrame.Position
-
-                -- 更新摄像机位置，让摄像机瞄准目标玩家
                 camera.CFrame = CFrame.lookAt(cameraPosition, targetPosition)
+
+                -- Check distance and perform dash if within 35 meters
+                if distance <= 35 then
+                    performDash()  -- Execute dash action when close enough
+                end
             end
         end)
 
-        -- 监听目标玩家的重生事件，重启跟踪
+        -- Listen for the target player's respawn event and restart tracking
         targetPlayer.CharacterAdded:Connect(function(newCharacter)
             targetCharacter = newCharacter
             local newHumanoid = newCharacter:WaitForChild("Humanoid")
-            trackAndAimAtPlayer()  -- 重新开始瞄准新角色
+            trackAndAimAtPlayer()  -- Restart aiming at the new character
         end)
     else
-        warn("未找到目标玩家: " .. targetPlayerName)
+        warn("Target player not found: " .. targetPlayerName)
     end
 end
 
--- 当玩家角色加载完毕后开始跟踪并瞄准目标玩家
+-- Start tracking and aiming when the player's character is loaded
 if character then
     trackAndAimAtPlayer()
 else
