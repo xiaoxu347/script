@@ -84,7 +84,7 @@ local function performSideDodge(targetCharacter)
     -- Temporarily shift camera to the right of the target
     local function shiftCameraRight(targetPosition)
         local cameraPosition = camera.CFrame.Position
-        local rightShift = (camera.CFrame.RightVector * 10) -- Adjust this value to control how far right the camera shifts
+        local rightShift = (camera.CFrame.RightVector * 10)  -- Adjust this value to control how far right the camera shifts
         camera.CFrame = CFrame.lookAt(cameraPosition + rightShift, targetPosition)
     end
 
@@ -94,12 +94,13 @@ local function performSideDodge(targetCharacter)
         camera.CFrame = CFrame.lookAt(cameraPosition, targetPosition)
     end
 
-    -- Perform the side dodge action
+    -- Ensure the dodge action occurs after the camera has shifted
     if targetCharacter:FindFirstChild("HumanoidRootPart") then
-        shiftCameraRight(targetCharacter.HumanoidRootPart.Position)  -- Temporarily lock camera to the right
-        performDash()  -- Perform the dash action
-        wait(3)  -- Extended delay to ensure the side dodge is noticeable
-        resetCamera(targetCharacter.HumanoidRootPart.Position)  -- Reset the camera lock to the center
+        shiftCameraRight(targetCharacter.HumanoidRootPart.Position)  -- Lock camera to the right
+        wait(0.5)  -- Hold the camera lock on the right before dodging
+        performDash()  -- Perform the dash action to the right
+        wait(1.0)  -- Extended delay to ensure side dodge is noticeable
+        resetCamera(targetCharacter.HumanoidRootPart.Position)  -- Reset camera lock to the center
     end
 
     isDodging = false
