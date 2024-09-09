@@ -11,7 +11,7 @@ local camera = Workspace.CurrentCamera
 -- 设置跟踪的目标玩家名字
 local targetPlayerName = "yaoshen21"  -- 将此处替换为你要跟踪的玩家名字
 
--- 寻找目标玩家
+-- 确保目标玩家存在并且有角色生成
 local function trackPlayer()
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
 
@@ -29,7 +29,8 @@ local function trackPlayer()
                 -- 更新摄像机位置，让摄像机跟随目标玩家
                 camera.CameraType = Enum.CameraType.Scriptable  -- 切换到脚本控制模式
                 local cameraOffset = Vector3.new(0, 10, -20)  -- 调整摄像机偏移量
-                camera.CFrame = CFrame.new(targetPosition + cameraOffset, targetPosition)
+                local cameraPosition = targetPosition + cameraOffset
+                camera.CFrame = CFrame.new(cameraPosition, targetPosition)
             end
         end)
     else
