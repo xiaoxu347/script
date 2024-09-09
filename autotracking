@@ -75,34 +75,26 @@ local function stopAttacking()
 end
 
 -- Function to perform side dodge
-local function performSideDodge(targetCharacter)
+local function performSideDodge()
     local currentTime = tick()
     if isDodging or (currentTime - lastDodgeTime) < 3 then return end  -- Prevent multiple dodge triggers and ensure cooldown
     isDodging = true
     lastDodgeTime = currentTime  -- Update the last dodge time
 
-    -- Temporarily shift camera to the right of the target
-    local function shiftCameraRight(targetPosition)
-        local cameraPosition = camera.CFrame.Position
-        local rightShift = (camera.CFrame.RightVector * 10)  -- Adjust this value to control how far right the camera shifts
-        camera.CFrame = CFrame.lookAt(cameraPosition + rightShift, targetPosition)
+    -- Execute dodge with right direction and Q key press
+    local function dodgeRight()
+        local args = {
+            [1] = {
+                ["Dash"] = Enum.KeyCode.D,  -- Right direction
+                ["Key"] = Enum.KeyCode.Q,   -- Q key for dash
+                ["Goal"] = "KeyPress"
+            }
+        }
+        game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
     end
 
-    -- Reset camera to the center after dodge
-    local function resetCamera(targetPosition)
-        local cameraPosition = camera.CFrame.Position
-        camera.CFrame = CFrame.lookAt(cameraPosition, targetPosition)
-    end
-
-    -- Ensure the dodge action occurs after the camera has shifted
-    if targetCharacter:FindFirstChild("HumanoidRootPart") then
-        shiftCameraRight(targetCharacter.HumanoidRootPart.Position)  -- Lock camera to the right
-        wait(0.5)  -- Hold the camera lock on the right before dodging
-        performDash()  -- Perform the dash action to the right
-        wait(1.0)  -- Extended delay to ensure side dodge is noticeable
-        resetCamera(targetCharacter.HumanoidRootPart.Position)  -- Reset camera lock to the center
-    end
-
+    dodgeRight()
+    wait(1.0)  -- Short delay to allow dodge action to complete
     isDodging = false
 end
 
@@ -139,14 +131,10 @@ local function trackAndAimAtPlayer()
                     performDash()  -- Execute dash action when close enough
                 end
 
-                -- Check distance and perform side dodge if within 30 meters
-                if distance <= 30 then
-                    performSideDodge(targetCharacter)  -- Execute side dodge when close enough
-                end
-
-                -- Check distance and start attacking if within 7 meters
+                -- Check distance and perform side dodge if within 7 meters
                 if distance <= 7 then
-                    startAttacking()  -- Start attacking when within 7 meters
+                    performSideDodge()  -- Execute side dodge when within range
+                    startAttacking()  -- Start attacking when within range
                 else
                     stopAttacking()  -- Stop attacking when outside 7 meters
                 end
