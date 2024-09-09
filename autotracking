@@ -11,6 +11,7 @@ local camera = Workspace.CurrentCamera
 -- Set the target player's name for tracking and aiming
 local targetPlayerName = "yaoshen21"  -- Replace with the target player's name
 local connection  -- Used to disconnect and reconnect the tracking function
+local isAttacking = false  -- To prevent overlapping attack sequences
 
 -- Function to stop tracking
 local function stopTracking()
@@ -33,35 +34,43 @@ local function performDash()
     game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
 end
 
--- Function to perform a three-hit attack
-local function performThreeHitAttack()
-    local function performLeftClick()
-        local args = {
-            [1] = {
-                ["Goal"] = "LeftClick",
-                ["Mobile"] = true
-            }
-        }
-        game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
-    end
+-- Function to start attacking when within 7 meters
+local function startAttacking()
+    if isAttacking then return end  -- Prevent multiple attack triggers
+    isAttacking = true
 
-    local function releaseLeftClick()
-        local args = {
-            [1] = {
-                ["Goal"] = "LeftClickRelease",
-                ["Mobile"] = true
+    -- Loop to keep attacking while within range
+    while isAttacking do
+        local function performLeftClick()
+            local args = {
+                [1] = {
+                    ["Goal"] = "LeftClick",
+                    ["Mobile"] = true
+                }
             }
-        }
-        game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
-    end
+            game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
+        end
 
-    -- Perform the three-hit combo
-    for i = 1, 3 do
+        local function releaseLeftClick()
+            local args = {
+                [1] = {
+                    ["Goal"] = "LeftClickRelease",
+                    ["Mobile"] = true
+                }
+            }
+            game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
+        end
+
         performLeftClick()
-        wait(0.3) -- Adjust the delay between hits as needed
+        wait(0.3)  -- Adjust delay as needed
         releaseLeftClick()
-        wait(0.3)
+        wait(0.3)  -- Adjust delay as needed
     end
+end
+
+-- Function to stop attacking
+local function stopAttacking()
+    isAttacking = false
 end
 
 -- Function to track and aim at the target player
@@ -75,6 +84,7 @@ local function trackAndAimAtPlayer()
         -- Listen for the target player's death event
         targetHumanoid.Died:Connect(function()
             stopTracking()  -- Stop tracking and aiming when the target player dies
+            stopAttacking()  -- Stop attacking when the target player dies
         end)
 
         -- Continuously update tracking and aiming
@@ -96,9 +106,11 @@ local function trackAndAimAtPlayer()
                     performDash()  -- Execute dash action when close enough
                 end
 
-                -- Check distance and perform three-hit attack if within 7 meters
+                -- Check distance and start attacking if within 7 meters
                 if distance <= 7 then
-                    performThreeHitAttack()  -- Execute three-hit attack when very close
+                    startAttacking()  -- Start attacking when within 7 meters
+                else
+                    stopAttacking()  -- Stop attacking when outside 7 meters
                 end
             end
         end)
