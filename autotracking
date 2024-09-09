@@ -12,8 +12,8 @@ local camera = Workspace.CurrentCamera
 local targetPlayerName = "yaoshen21"  -- Replace with the target player's name
 local connection  -- Used to disconnect and reconnect the tracking function
 local isAttacking = false  -- Prevent overlapping attack sequences
-local isDodging = false  -- Prevent overlapping dodge sequences
 local lastDodgeTime = 0  -- Track the last time a dodge was performed
+local dodgeCooldown = 3  -- Cooldown time in seconds for side dodge
 
 -- Function to stop tracking
 local function stopTracking()
@@ -77,9 +77,7 @@ end
 -- Function to perform side dodge
 local function performSideDodge()
     local currentTime = tick()
-    if isDodging or (currentTime - lastDodgeTime) < 3 then return end  -- Prevent multiple dodge triggers and ensure cooldown
-    isDodging = true
-    lastDodgeTime = currentTime  -- Update the last dodge time
+    if (currentTime - lastDodgeTime) < dodgeCooldown then return end  -- Ensure cooldown is respected
 
     -- Execute dodge with right direction and Q key press
     local function dodgeRight()
@@ -94,8 +92,7 @@ local function performSideDodge()
     end
 
     dodgeRight()
-    wait(1.0)  -- Short delay to allow dodge action to complete
-    isDodging = false
+    lastDodgeTime = currentTime  -- Update the last dodge time
 end
 
 -- Function to track and aim at the target player
@@ -131,10 +128,13 @@ local function trackAndAimAtPlayer()
                     performDash()  -- Execute dash action when close enough
                 end
 
-                -- Check distance and perform side dodge if within 7 meters
+                -- Check distance and decide between attacking or dodging
                 if distance <= 7 then
-                    performSideDodge()  -- Execute side dodge when within range
-                    startAttacking()  -- Start attacking when within range
+                    if (tick() - lastDodgeTime) >= dodgeCooldown then
+                        performSideDodge()  -- Execute side dodge when cooldown allows
+                    else
+                        startAttacking()  -- Attack when not dodging
+                    end
                 else
                     stopAttacking()  -- Stop attacking when outside 7 meters
                 end
