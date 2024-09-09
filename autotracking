@@ -11,8 +11,8 @@ local camera = Workspace.CurrentCamera
 -- Set the target player's name for tracking and aiming
 local targetPlayerName = "yaoshen21"  -- Replace with the target player's name
 local connection  -- Used to disconnect and reconnect the tracking function
-local isAttacking = false  -- To prevent overlapping attack sequences
-local isSidestepping = false  -- To prevent overlapping sidestep sequences
+local isAttacking = false  -- Prevent overlapping attack sequences
+local isDodging = false  -- Prevent overlapping dodge sequences
 
 -- Function to stop tracking
 local function stopTracking()
@@ -31,30 +31,7 @@ local function performDash()
             ["Goal"] = "KeyPress"
         }
     }
-
     game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
-end
-
--- Function to perform sidestep (move right and dash)
-local function performSidestep()
-    if isSidestepping then return end  -- Prevent multiple sidesteps at once
-    isSidestepping = true
-
-    -- Execute right movement and dash simultaneously
-    local moveRightArgs = {
-        [1] = {
-            ["Key"] = Enum.KeyCode.D,  -- Right movement key
-            ["Goal"] = "KeyPress"
-        }
-    }
-    
-    -- Trigger right movement and dash
-    game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(moveRightArgs))
-    performDash()
-    
-    -- Short delay to simulate the sidestep action
-    wait(0.5)
-    isSidestepping = false
 end
 
 -- Function to start attacking when within 7 meters
@@ -96,6 +73,33 @@ local function stopAttacking()
     isAttacking = false
 end
 
+-- Function to perform side dodge
+local function performSideDodge()
+    if isDodging then return end  -- Prevent multiple dodge triggers
+    isDodging = true
+
+    -- Temporarily shift camera to the right of the target
+    local function shiftCameraRight(targetPosition)
+        local cameraPosition = camera.CFrame.Position
+        local rightShift = (camera.CFrame.RightVector * 10) -- Adjust this value to control how far right the camera shifts
+        camera.CFrame = CFrame.lookAt(cameraPosition + rightShift, targetPosition)
+    end
+
+    -- Reset camera to the center after dodge
+    local function resetCamera(targetPosition)
+        local cameraPosition = camera.CFrame.Position
+        camera.CFrame = CFrame.lookAt(cameraPosition, targetPosition)
+    end
+
+    -- Perform the side dodge action
+    shiftCameraRight(targetCharacter.HumanoidRootPart.Position)  -- Temporarily lock camera to the right
+    performDash()  -- Perform the dash action
+    wait(0.5)  -- Adjust delay if necessary to match dodge timing
+    resetCamera(targetCharacter.HumanoidRootPart.Position)  -- Reset the camera lock to the center
+
+    isDodging = false
+end
+
 -- Function to track and aim at the target player
 local function trackAndAimAtPlayer()
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
@@ -124,18 +128,14 @@ local function trackAndAimAtPlayer()
                 local cameraPosition = camera.CFrame.Position
                 camera.CFrame = CFrame.lookAt(cameraPosition, targetPosition)
 
-                -- Calculate the relative position of the target to the player
-                local relativePosition = (targetPosition - cameraPosition).unit
-                local rightDirection = camera.CFrame.RightVector
-
-                -- Check distance and perform sidestep if within 30 meters and target is on the right
-                if distance <= 30 and relativePosition:Dot(rightDirection) > 0.5 then
-                    performSidestep()
-                end
-
                 -- Check distance and perform dash if within 35 meters
                 if distance <= 35 then
                     performDash()  -- Execute dash action when close enough
+                end
+
+                -- Check distance and perform side dodge if within 30 meters
+                if distance <= 30 then
+                    performSideDodge()  -- Execute side dodge when close enough
                 end
 
                 -- Check distance and start attacking if within 7 meters
