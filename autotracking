@@ -12,8 +12,8 @@ local camera = Workspace.CurrentCamera
 local targetPlayerName = "yaoshen21"  -- Replace with the target player's name
 local connection  -- Used to disconnect and reconnect the tracking function
 local isAttacking = false  -- Prevent overlapping attack sequences
-local lastDodgeTime = 0  -- Track the last time a dodge was performed
-local dodgeCooldown = 3  -- Cooldown time in seconds for side dodge
+local lastSkillUseTime = 0  -- Track the last time a skill was used
+local skillCooldown = 3  -- Cooldown time in seconds for the skill
 
 -- Function to stop tracking
 local function stopTracking()
@@ -74,25 +74,24 @@ local function stopAttacking()
     isAttacking = false
 end
 
--- Function to perform side dodge
-local function performSideDodge()
+-- Function to perform a skill using item bar slots (1, 2, 3, 4)
+local function performSkill()
     local currentTime = tick()
-    if (currentTime - lastDodgeTime) < dodgeCooldown then return end  -- Ensure cooldown is respected
+    if (currentTime - lastSkillUseTime) < skillCooldown then return end  -- Ensure cooldown is respected
 
-    -- Execute dodge with right direction and Q key press
-    local function dodgeRight()
+    -- Execute a skill using item slot 1 (you can adjust the slot number as needed)
+    local function useSkill(slotNumber)
         local args = {
             [1] = {
-                ["Dash"] = Enum.KeyCode.D,  -- Right direction
-                ["Key"] = Enum.KeyCode.Q,   -- Q key for dash
-                ["Goal"] = "KeyPress"
+                ["Slot"] = slotNumber,  -- Item bar slot number (1, 2, 3, or 4)
+                ["Goal"] = "UseItem"    -- Action to use the item in the specified slot
             }
         }
         game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
     end
 
-    dodgeRight()
-    lastDodgeTime = currentTime  -- Update the last dodge time
+    useSkill(1)  -- Replace with 2, 3, or 4 to use other slots as needed
+    lastSkillUseTime = currentTime  -- Update the last skill use time
 end
 
 -- Function to track and aim at the target player
@@ -128,13 +127,10 @@ local function trackAndAimAtPlayer()
                     performDash()  -- Execute dash action when close enough
                 end
 
-                -- Check distance and decide between attacking or dodging
+                -- Check distance and decide between attacking or using a skill
                 if distance <= 7 then
-                    if (tick() - lastDodgeTime) >= dodgeCooldown then
-                        performSideDodge()  -- Execute side dodge when cooldown allows
-                    else
-                        startAttacking()  -- Attack when not dodging
-                    end
+                    performSkill()  -- Use skill when within range
+                    startAttacking()  -- Attack when not on cooldown
                 else
                     stopAttacking()  -- Stop attacking when outside 7 meters
                 end
