@@ -95,7 +95,7 @@ local function performSideDodge(targetCharacter)
     if targetCharacter:FindFirstChild("HumanoidRootPart") then
         shiftCameraRight(targetCharacter.HumanoidRootPart.Position)  -- Temporarily lock camera to the right
         performDash()  -- Perform the dash action
-        wait(0.5)  -- Adjust delay if necessary to match dodge timing
+        wait(1)  -- Increased delay to ensure the side dodge is noticeable
         resetCamera(targetCharacter.HumanoidRootPart.Position)  -- Reset the camera lock to the center
     end
 
