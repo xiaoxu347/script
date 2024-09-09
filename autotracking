@@ -9,13 +9,14 @@ local humanoid = character:WaitForChild("Humanoid")
 local camera = Workspace.CurrentCamera
 
 -- Set the target player's name for tracking and aiming
-local targetPlayerName = "sun112805"  -- Replace with the target player's name
+local targetPlayerName = "yaoshen21"  -- Replace with the target player's name
 local connection  -- Used to disconnect and reconnect the tracking function
 local isAttacking = false  -- Prevent overlapping attack sequences
 local lastSkillUseTime = 0  -- Track the last time a skill was used
 local skillCooldown = 3  -- Cooldown time in seconds for the skill
 local skillQueue = {"Flowing Water", "Lethal Whirlwind Stream", "Hunter's Grasp", "Prey's Peril"}  -- Skill rotation list
 local currentSkillIndex = 1  -- Track the current skill in the queue
+local humanoidDiedConnection  -- Store the Died connection for cleanup
 
 -- Function to stop tracking
 local function stopTracking()
@@ -173,17 +174,26 @@ local function onPlayerDeath()
     stopTracking()
     stopAttacking()
 
+    -- Disconnect the current Died event to avoid multiple connections
+    if humanoidDiedConnection then
+        humanoidDiedConnection:Disconnect()
+        humanoidDiedConnection = nil
+    end
+
     -- Wait for the player to respawn
     localPlayer.CharacterAdded:Wait()
     character = localPlayer.Character
     humanoid = character:WaitForChild("Humanoid")
 
+    -- Reconnect the Died event for the new character
+    humanoidDiedConnection = humanoid.Died:Connect(onPlayerDeath)
+
     -- Restart tracking and aiming once respawned
     trackAndAimAtPlayer()
 end
 
--- Listen for the local player's death event
-humanoid.Died:Connect(onPlayerDeath)
+-- Listen for the local player's death event and ensure only one connection is made
+humanoidDiedConnection = humanoid.Died:Connect(onPlayerDeath)
 
 -- Start tracking and aiming when the player's character is loaded
 if character then
