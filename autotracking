@@ -14,6 +14,8 @@ local connection  -- Used to disconnect and reconnect the tracking function
 local isAttacking = false  -- Prevent overlapping attack sequences
 local lastSkillUseTime = 0  -- Track the last time a skill was used
 local skillCooldown = 3  -- Cooldown time in seconds for the skill
+local skillQueue = {"Flowing Water", "Lethal Whirlwind Stream", "Hunter's Grasp", "Prey's Peril"}  -- Skill rotation list
+local currentSkillIndex = 1  -- Track the current skill in the queue
 
 -- Function to stop tracking
 local function stopTracking()
@@ -35,43 +37,26 @@ local function performDash()
     game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
 end
 
--- Function to start attacking when within 7 meters
-local function startAttacking()
-    if isAttacking then return end  -- Prevent multiple attack triggers
-    isAttacking = true
-
-    -- Loop to keep attacking while within range
-    while isAttacking do
-        local function performLeftClick()
-            local args = {
-                [1] = {
-                    ["Goal"] = "LeftClick",
-                    ["Mobile"] = true
-                }
-            }
-            game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
-        end
-
-        local function releaseLeftClick()
-            local args = {
-                [1] = {
-                    ["Goal"] = "LeftClickRelease",
-                    ["Mobile"] = true
-                }
-            }
-            game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
-        end
-
-        performLeftClick()
-        wait(0.3)  -- Adjust delay as needed
-        releaseLeftClick()
-        wait(0.3)  -- Adjust delay as needed
-    end
+-- Function to perform normal attack (left click)
+local function performNormalAttack()
+    local args = {
+        [1] = {
+            ["Goal"] = "LeftClick",
+            ["Mobile"] = true
+        }
+    }
+    game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
 end
 
--- Function to stop attacking
-local function stopAttacking()
-    isAttacking = false
+-- Function to release normal attack (left click release)
+local function releaseNormalAttack()
+    local args = {
+        [1] = {
+            ["Goal"] = "LeftClickRelease",
+            ["Mobile"] = true
+        }
+    }
+    game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
 end
 
 -- Function to perform a skill using specific skill names
@@ -95,18 +80,38 @@ local function performSkill(skillName)
         end
     end
 
-    -- Use the corresponding skill
-    if skillName == "Flowing Water" then
-        useSkillByName("Flowing Water")
-    elseif skillName == "Lethal Whirlwind Stream" then
-        useSkillByName("Lethal Whirlwind Stream")
-    elseif skillName == "Hunter's Grasp" then
-        useSkillByName("Hunter's Grasp")
-    elseif skillName == "Prey's Peril" then
-        useSkillByName("Prey's Peril")
-    end
-
+    useSkillByName(skillName)  -- Use the current skill
     lastSkillUseTime = currentTime  -- Update the last skill use time
+end
+
+-- Function to alternate between normal attacks and skills
+local function attackAndUseSkills()
+    if isAttacking then return end  -- Prevent multiple attack triggers
+    isAttacking = true
+
+    while isAttacking do
+        -- Perform normal attack
+        performNormalAttack()
+        wait(0.3)  -- Adjust delay for attack speed
+        releaseNormalAttack()
+
+        -- Use the next skill in the queue
+        local skillName = skillQueue[currentSkillIndex]
+        performSkill(skillName)
+        
+        -- Cycle through the skill queue
+        currentSkillIndex = currentSkillIndex + 1
+        if currentSkillIndex > #skillQueue then
+            currentSkillIndex = 1
+        end
+
+        wait(0.5)  -- Adjust delay for cooldown between skills and attacks
+    end
+end
+
+-- Function to stop attacking
+local function stopAttacking()
+    isAttacking = false
 end
 
 -- Function to track and aim at the target player
@@ -142,10 +147,9 @@ local function trackAndAimAtPlayer()
                     performDash()  -- Execute dash action when close enough
                 end
 
-                -- Check distance and decide between attacking or using a skill
+                -- Start attacking and using skills when within 7 meters
                 if distance <= 7 then
-                    performSkill("Flowing Water")  -- Use "Flowing Water" skill when within range
-                    startAttacking()  -- Attack when not on cooldown
+                    attackAndUseSkills()
                 else
                     stopAttacking()  -- Stop attacking when outside 7 meters
                 end
