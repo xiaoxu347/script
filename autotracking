@@ -74,7 +74,7 @@ local function stopAttacking()
 end
 
 -- Function to perform side dodge
-local function performSideDodge()
+local function performSideDodge(targetCharacter)
     if isDodging then return end  -- Prevent multiple dodge triggers
     isDodging = true
 
@@ -92,10 +92,12 @@ local function performSideDodge()
     end
 
     -- Perform the side dodge action
-    shiftCameraRight(targetCharacter.HumanoidRootPart.Position)  -- Temporarily lock camera to the right
-    performDash()  -- Perform the dash action
-    wait(0.5)  -- Adjust delay if necessary to match dodge timing
-    resetCamera(targetCharacter.HumanoidRootPart.Position)  -- Reset the camera lock to the center
+    if targetCharacter:FindFirstChild("HumanoidRootPart") then
+        shiftCameraRight(targetCharacter.HumanoidRootPart.Position)  -- Temporarily lock camera to the right
+        performDash()  -- Perform the dash action
+        wait(0.5)  -- Adjust delay if necessary to match dodge timing
+        resetCamera(targetCharacter.HumanoidRootPart.Position)  -- Reset the camera lock to the center
+    end
 
     isDodging = false
 end
@@ -118,7 +120,7 @@ local function trackAndAimAtPlayer()
         connection = RunService.RenderStepped:Connect(function()
             if targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart") then
                 local targetPosition = targetCharacter.HumanoidRootPart.Position
-                local playerPosition = character.HumanoidRootPart.Position
+                local playerPosition = character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position
                 local distance = (targetPosition - playerPosition).Magnitude
 
                 -- Move the player's character towards the target
@@ -135,7 +137,7 @@ local function trackAndAimAtPlayer()
 
                 -- Check distance and perform side dodge if within 30 meters
                 if distance <= 30 then
-                    performSideDodge()  -- Execute side dodge when close enough
+                    performSideDodge(targetCharacter)  -- Execute side dodge when close enough
                 end
 
                 -- Check distance and start attacking if within 7 meters
