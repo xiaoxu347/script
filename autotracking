@@ -33,6 +33,37 @@ local function performDash()
     game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
 end
 
+-- Function to perform a three-hit attack
+local function performThreeHitAttack()
+    local function performLeftClick()
+        local args = {
+            [1] = {
+                ["Goal"] = "LeftClick",
+                ["Mobile"] = true
+            }
+        }
+        game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
+    end
+
+    local function releaseLeftClick()
+        local args = {
+            [1] = {
+                ["Goal"] = "LeftClickRelease",
+                ["Mobile"] = true
+            }
+        }
+        game:GetService("Players").LocalPlayer.Character.Communicate:FireServer(unpack(args))
+    end
+
+    -- Perform the three-hit combo
+    for i = 1, 3 do
+        performLeftClick()
+        wait(0.3) -- Adjust the delay between hits as needed
+        releaseLeftClick()
+        wait(0.3)
+    end
+end
+
 -- Function to track and aim at the target player
 local function trackAndAimAtPlayer()
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
@@ -63,6 +94,11 @@ local function trackAndAimAtPlayer()
                 -- Check distance and perform dash if within 35 meters
                 if distance <= 35 then
                     performDash()  -- Execute dash action when close enough
+                end
+
+                -- Check distance and perform three-hit attack if within 7 meters
+                if distance <= 7 then
+                    performThreeHitAttack()  -- Execute three-hit attack when very close
                 end
             end
         end)
