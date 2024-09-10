@@ -9,7 +9,7 @@ local humanoid = character:WaitForChild("Humanoid")
 local camera = Workspace.CurrentCamera
 
 -- Set the target player's name for tracking and aiming
-local targetPlayerName = "yaoshen21"  -- Replace with the target player's nam
+local targetPlayerName = "chongfenbu"  -- Replace with the target player's nam
 local connection  -- Used to disconnect and reconnect the tracking function
 local isAttacking = false  -- Prevent overlapping attack sequences
 local lastSkillUseTime = 0  -- Track the last time a skill was used
