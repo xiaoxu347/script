@@ -1,0 +1,18 @@
+-- 定义半透明的透明度值
+local transparencyValue = 0.5 -- 0 是完全不透明，1 是完全透明
+
+-- 获取 Workspace 中的所有对象
+local function setTransparency(model)
+    for _, object in pairs(model:GetDescendants()) do
+        if object:IsA("BasePart") then
+            object.Transparency = transparencyValue
+        end
+    end
+end
+
+-- 遍历 Workspace 中的所有对象并设置透明度
+for _, instance in pairs(game.Workspace:GetChildren()) do
+    if instance:IsA("Model") then
+        setTransparency(instance)
+    end
+end
