@@ -9,14 +9,12 @@ local moveSpeed = 10
 
 -- 创建漂浮的 BodyPosition 和 BodyGyro
 local bodyPosition = Instance.new("BodyPosition")
-bodyPosition.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在 Y 轴上施加力
-bodyPosition.D = 10 -- 阻尼值
+bodyPosition.MaxForce = Vector3.new(0, math.huge, 0)
+bodyPosition.D = 10
 
 local bodyGyro = Instance.new("BodyGyro")
-
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-
-bodyGyro.D = 10 -- 阻尼值
+bodyGyro.D = 10
 
 -- 浮动功能
 local function startFloating()
@@ -31,15 +29,12 @@ local function startFloating()
 
         humanoid.PlatformStand = true
 
-        -- 禁用掉落伤害
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-
         -- 设置玩家的漂浮高度
         bodyPosition.Parent = rootPart
         bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
         bodyGyro.Parent = rootPart
 
-        -- 让玩家保持平稳朝向（面朝天躺着）
+        -- 调整玩家躺下的姿势（让玩家完全面朝天）
         bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0)
     end
 end
@@ -50,11 +45,6 @@ local function stopFloating()
         isFloating = false
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         humanoid.PlatformStand = false
-
-        -- 恢复掉落伤害
-        humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-
-        -- 销毁漂浮组件
         bodyPosition:Destroy()
         bodyGyro:Destroy()
 
@@ -64,32 +54,24 @@ local function stopFloating()
         bodyPosition.D = 10
 
         bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(0, math.huge, 0)
+        bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
         bodyGyro.D = 10
     end
 end
 
--- 更新 BodyGyro 让角色保持朝向
-game:GetService("RunService").Stepped:Connect(function()
-    if isFloating then
-        -- 保持角色的 X 轴朝上（躺下），Y 轴允许随视角转动
-        bodyGyro.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(math.rad(90), rootPart.Orientation.Y, 0)
+-- 监听输入改变并控制角色移动
+UserInputService.InputChanged:Connect(function(input, processed)
+    if not processed and isFloating and input.UserInputType == Enum.UserInputType.Touch then
+        -- 获取屏幕中触摸方向
+        local inputVector = input.Position
+        -- 计算移动方向，这里通过 X 和 Y 来调整方向
+        local deltaX = (inputVector.X - workspace.CurrentCamera.ViewportSize.X / 2) / 100
+        local deltaY = (inputVector.Y - workspace.CurrentCamera.ViewportSize.Y / 2) / 100
+
+        -- 根据触摸的方向调整玩家的 CFrame 移动
+        rootPart.CFrame = rootPart.CFrame * CFrame.new(deltaX * moveSpeed, 0, deltaY * moveSpeed)
     end
 end)
-
--- 监听手机的触控输入并控制角色移动
-UserInputService.TouchMoved:Connect(function(input, processed)
-    if not processed and isFloating then
-        local deltaX = (input.Position.X - workspace.CurrentCamera.ViewportSize.X / 2) / 100
-        local deltaY = (input.Position.Y - workspace.CurrentCamera.ViewportSize.Y / 2) / 100
-        
-        -- 使用摄像机的方向来计算移动
-        local camera = workspace.CurrentCamera
-        local moveDirection = (camera.CFrame.RightVector * deltaX + camera.CFrame.LookVector * deltaY).Unit
-        rootPart.CFrame = rootPart.CFrame + moveDirection * moveSpeed
-    end
-end)
-
 
 -- 创建 GUI
 local screenGui = Instance.new("ScreenGui")
@@ -157,4 +139,8 @@ end)
 
 cancelButton.MouseButton1Click:Connect(function()
     stopFloating()
-end)
+end)抱错[ERROR] </font> TouchMove is not a valid member of UserInputService "UserInputService"
+    Stack Begin
+    Script '', Line 63
+    Script '', Line 1
+    Stack End 
