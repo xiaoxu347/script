@@ -3,14 +3,14 @@ local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
-local floatHeight = 3
+local floatHeight = 10
 local isFloating = false
 local moveSpeed = 10
 
 -- 创建漂浮的 BodyPosition 和 BodyGyro
 local bodyPosition = Instance.new("BodyPosition")
 bodyPosition.MaxForce = Vector3.new(0, math.huge, 0)
-bodyPosition.D = 3
+bodyPosition.D = 10
 
 local bodyGyro = Instance.new("BodyGyro")
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
@@ -73,8 +73,6 @@ UserInputService.InputChanged:Connect(function(input, processed)
     end
 end)
 
-
-UserInputService.InputChanged:Connect(onInputChanged)
 
 -- 创建 GUI
 local screenGui = Instance.new("ScreenGui")
