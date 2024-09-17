@@ -60,10 +60,9 @@ local function stopFloating()
 end
 
 -- 监听虚拟摇杆输入并控制角色移动
-UserInputService.TouchMove:Connect(function(touch, processed)
-    if not processed and isFloating then
-        -- 获取屏幕中摇杆方向
-        local inputVector = touch.Position
+local function onInputChanged(input)
+    if isFloating and input.UserInputType == Enum.UserInputType.Touch then
+        local inputVector = input.Position
         -- 计算移动方向，这里通过 X 和 Y 来调整方向
         local deltaX = (inputVector.X - workspace.CurrentCamera.ViewportSize.X / 2) / 100
         local deltaY = (inputVector.Y - workspace.CurrentCamera.ViewportSize.Y / 2) / 100
@@ -71,7 +70,9 @@ UserInputService.TouchMove:Connect(function(touch, processed)
         -- 根据摇杆的方向调整玩家的 CFrame 移动
         rootPart.CFrame = rootPart.CFrame * CFrame.new(deltaX * moveSpeed, 0, deltaY * moveSpeed)
     end
-end)
+end
+
+UserInputService.InputChanged:Connect(onInputChanged)
 
 -- 创建 GUI
 local screenGui = Instance.new("ScreenGui")
