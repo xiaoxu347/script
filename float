@@ -33,6 +33,9 @@ local function startFloating()
         bodyPosition.Parent = rootPart
         bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
         bodyGyro.Parent = rootPart
+
+        -- 调整玩家躺下的姿势（让玩家完全面朝天）
+        bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0)
     end
 end
 
