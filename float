@@ -13,7 +13,9 @@ bodyPosition.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在 Y 轴上施加力
 bodyPosition.D = 10 -- 阻尼值
 
 local bodyGyro = Instance.new("BodyGyro")
-bodyGyro.MaxTorque = Vector3.new(0, math.huge, 0) -- 仅允许 Y 轴旋转（角色朝向）
+
+bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+
 bodyGyro.D = 10 -- 阻尼值
 
 -- 浮动功能
@@ -70,22 +72,24 @@ end
 -- 更新 BodyGyro 让角色保持朝向
 game:GetService("RunService").Stepped:Connect(function()
     if isFloating then
-        -- 保持玩家的躺下姿势，并固定朝向
-        bodyGyro.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(math.rad(90), 0, 0)
+        -- 保持角色的 X 轴朝上（躺下），Y 轴允许随视角转动
+        bodyGyro.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(math.rad(90), rootPart.Orientation.Y, 0)
     end
 end)
 
 -- 监听手机的触控输入并控制角色移动
 UserInputService.TouchMoved:Connect(function(input, processed)
     if not processed and isFloating then
-        -- 通过手机触控来控制角色移动方向
         local deltaX = (input.Position.X - workspace.CurrentCamera.ViewportSize.X / 2) / 100
         local deltaY = (input.Position.Y - workspace.CurrentCamera.ViewportSize.Y / 2) / 100
         
-        -- 根据触控方向调整角色的位置
-        rootPart.CFrame = rootPart.CFrame * CFrame.new(deltaX * moveSpeed, 0, deltaY * moveSpeed)
+        -- 使用摄像机的方向来计算移动
+        local camera = workspace.CurrentCamera
+        local moveDirection = (camera.CFrame.RightVector * deltaX + camera.CFrame.LookVector * deltaY).Unit
+        rootPart.CFrame = rootPart.CFrame + moveDirection * moveSpeed
     end
 end)
+
 
 -- 创建 GUI
 local screenGui = Instance.new("ScreenGui")
