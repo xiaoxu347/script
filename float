@@ -188,23 +188,23 @@ cancelButton.MouseButton1Click:Connect(function()
     stopFloating()
 end)
 
--- 上升功能
+-- 上升功能（世界坐标上升）
 flyUpButton.MouseButton1Click:Connect(function()
     if isFloating then
-        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, moveSpeed, 0)
+        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, moveSpeed, 0) -- 世界坐标上升
     end
 end)
 
--- 下降功能
+-- 下降功能（世界坐标下降）
 flyDownButton.MouseButton1Click:Connect(function()
     if isFloating then
-        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, -moveSpeed, 0)
+        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, -moveSpeed, 0) -- 世界坐标下降
     end
 end)
 
--- 前进功能
+-- 前进功能（沿玩家的朝向前进）
 moveForwardButton.MouseButton1Click:Connect(function()
     if isFloating then
-        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, 0, -moveSpeed)
+        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, 0, -moveSpeed) -- 沿着玩家的LookVector前进
     end
 end)
