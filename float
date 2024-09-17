@@ -1,95 +1,84 @@
--- 获取玩家
+-- 创建 GUI
+local screenGui = Instance.new("ScreenGui")
+local buttonFrame = Instance.new("Frame")
+buttonFrame.Size = UDim2.new(0, 200, 0, 200)
+buttonFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+buttonFrame.Parent = screenGui
+
+-- 创建浮动按钮
+local floatButton = Instance.new("TextButton")
+floatButton.Size = UDim2.new(0, 100, 0, 50)
+floatButton.Position = UDim2.new(0, 0, 0, 0)
+floatButton.Text = "Float"
+floatButton.Parent = buttonFrame
+
+-- 创建取消按钮
+local cancelButton = Instance.new("TextButton")
+cancelButton.Size = UDim2.new(0, 100, 0, 50)
+cancelButton.Position = UDim2.new(0, 0, 0, 50)
+cancelButton.Text = "Cancel"
+cancelButton.Parent = buttonFrame
+
+-- 创建上升按钮
+local flyUpButton = Instance.new("TextButton")
+flyUpButton.Size = UDim2.new(0, 100, 0, 50)
+flyUpButton.Position = UDim2.new(0, 0, 0, 100)
+flyUpButton.Text = "Fly Up"
+flyUpButton.Parent = buttonFrame
+
+-- 创建下降按钮
+local flyDownButton = Instance.new("TextButton")
+flyDownButton.Size = UDim2.new(0, 100, 0, 50)
+flyDownButton.Position = UDim2.new(0, 0, 0, 150)
+flyDownButton.Text = "Fly Down"
+flyDownButton.Parent = buttonFrame
+
+-- 创建前进按钮
+local moveForwardButton = Instance.new("TextButton")
+moveForwardButton.Size = UDim2.new(0, 100, 0, 50)
+moveForwardButton.Position = UDim2.new(0, 100, 0, 0)
+moveForwardButton.Text = "Forward"
+moveForwardButton.Parent = buttonFrame
+
+-- 将 GUI 添加到玩家的屏幕
+screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+
+-- 功能实现
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local rootPart = character:FindFirstChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("HumanoidRootPart")
 
--- 设定漂浮参数
-local floatHeight = 3 -- 漂浮的高度
-local isFloating = false -- 控制是否漂浮
+-- 按钮连接到动作
+local floating = false
+local floatHeight = 50
+local moveSpeed = 10
 
--- 创建用于漂浮的BodyPosition和BodyGyro
-local bodyPosition = Instance.new("BodyPosition", rootPart)
-local bodyGyro = Instance.new("BodyGyro", rootPart)
+-- 浮动功能
+floatButton.MouseButton1Click:Connect(function()
+    floating = true
+    humanoid.BodyVelocity = Instance.new("BodyVelocity", humanoid)
+    humanoid.BodyVelocity.Velocity = Vector3.new(0, 1, 0) * floatHeight
+end)
 
--- 设置BodyPosition的属性，控制玩家的漂浮高度
-bodyPosition.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在Y轴上施加力
-bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0) -- 将玩家漂浮到指定高度
-bodyPosition.D = 3 -- 让玩家缓慢地达到目标高度
-
--- 设置BodyGyro的属性，保持玩家的旋转
-bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 允许沿所有轴旋转
-bodyGyro.D = 10
-
--- 找到最近的玩家
-local function findNearestPlayer()
-    local nearestPlayer = nil
-    local nearestDistance = math.huge
-
-    for _, otherPlayer in pairs(game.Players:GetPlayers()) do
-        if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local distance = (rootPart.Position - otherPlayer.Character.HumanoidRootPart.Position).Magnitude
-            if distance < nearestDistance then
-                nearestDistance = distance
-                nearestPlayer = otherPlayer
-            end
-        end
+-- 取消浮动
+cancelButton.MouseButton1Click:Connect(function()
+    floating = false
+    if humanoid:FindFirstChild("BodyVelocity") then
+        humanoid.BodyVelocity:Destroy()
     end
+end)
 
-    return nearestPlayer
-end
+-- 上升功能
+flyUpButton.MouseButton1Click:Connect(function()
+    humanoid.CFrame = humanoid.CFrame * CFrame.new(0, moveSpeed, 0)
+end)
 
--- 同步头部朝向最近玩家的面朝方向
-local function syncHeadDirection()
-    local nearestPlayer = findNearestPlayer()
-    if nearestPlayer and nearestPlayer.Character and nearestPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        -- 获取最近玩家的面朝方向
-        local targetDirection = nearestPlayer.Character.HumanoidRootPart.CFrame.LookVector
-        -- 旋转当前玩家使其头部方向与最近玩家的面朝方向同步
-        bodyGyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + targetDirection) * CFrame.Angles(math.rad(90), 0, 0)
-    end
-end
+-- 下降功能
+flyDownButton.MouseButton1Click:Connect(function()
+    humanoid.CFrame = humanoid.CFrame * CFrame.new(0, -moveSpeed, 0)
+end)
 
--- 漂浮逻辑
-local function startFloating()
-    if not isFloating then
-        isFloating = true
-
-        -- 禁用玩家动画防止游泳等动画影响
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid and humanoid:FindFirstChild("Animator") then
-            humanoid.Animator:Destroy()
-        end
-
-        -- 禁用玩家的物理行为防止干扰
-        if humanoid then
-            humanoid.PlatformStand = true
-        end
-
-        -- 确保玩家在漂浮时不会掉下去
-        bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
-
-        -- 开始同步头部朝向
-        game:GetService("RunService").Heartbeat:Connect(syncHeadDirection)
-    end
-end
-
-local function stopFloating()
-    if isFloating then
-        isFloating = false
-
-        -- 恢复原来的状态
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.PlatformStand = false
-        end
-        bodyPosition:Destroy()
-        bodyGyro:Destroy()
-    end
-end
-
--- 让玩家漂浮并面朝天躺下
-startFloating()
-
--- 设置10秒后停止漂浮
-wait(10)
-stopFloating()
+-- 前进功能
+moveForwardButton.MouseButton1Click:Connect(function()
+    humanoid.CFrame = humanoid.CFrame * CFrame.new(0, 0, -moveSpeed)
+end)
