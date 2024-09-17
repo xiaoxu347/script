@@ -7,7 +7,7 @@ local humanoid = character:FindFirstChildOfClass("Humanoid")
 local rootPart = character:FindFirstChild("HumanoidRootPart")
 
 -- 设定漂浮参数
-local floatHeight = 10 -- 漂浮的高度
+local floatHeight = 3 -- 漂浮的高度
 local isFloating = false -- 控制是否漂浮
 
 -- 创建用于漂浮的BodyPosition和BodyGyro
@@ -17,7 +17,7 @@ local bodyGyro = Instance.new("BodyGyro", rootPart)
 -- 设置BodyPosition的属性，控制玩家的漂浮高度
 bodyPosition.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在Y轴上施加力
 bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0) -- 将玩家漂浮到指定高度
-bodyPosition.D = 10 -- 让玩家缓慢地达到目标高度
+bodyPosition.D = 3 -- 让玩家缓慢地达到目标高度
 
 -- 设置BodyGyro的属性，保持玩家的旋转
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 允许沿所有轴旋转
