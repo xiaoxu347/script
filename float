@@ -3,23 +3,18 @@ local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
-local floatHeight = 3
+local floatHeight = 10
 local isFloating = false
 local moveSpeed = 10
 
 -- 创建漂浮的 BodyPosition 和 BodyGyro
 local bodyPosition = Instance.new("BodyPosition")
-bodyPosition.MaxForce = Vector3.new(0, math.huge, 0)
-bodyPosition.D = 3
+bodyPosition.MaxForce = Vector3.new(0, 5000, 0) -- 限制在 Y 轴上的力，防止漂浮时被强拉
+bodyPosition.D = 10 -- 阻尼值，用于控制运动的阻尼，值越大，越稳定
 
 local bodyGyro = Instance.new("BodyGyro")
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
 bodyGyro.D = 10
-
--- 添加 BodyVelocity 来抵消重力
-local bodyVelocity = Instance.new("BodyVelocity")
-bodyVelocity.Velocity = Vector3.new(0, 0, 0) -- 取消掉落速度
-bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0) -- 只允许垂直方向的力
 
 -- 浮动功能
 local function startFloating()
@@ -42,9 +37,6 @@ local function startFloating()
         bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
         bodyGyro.Parent = rootPart
 
-        -- 抵消掉落速度
-        bodyVelocity.Parent = rootPart
-
         -- 调整玩家躺下的姿势（让玩家完全面朝天）
         bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0)
     end
@@ -63,20 +55,15 @@ local function stopFloating()
         -- 销毁漂浮组件
         bodyPosition:Destroy()
         bodyGyro:Destroy()
-        bodyVelocity:Destroy()
 
         -- 重置变量
         bodyPosition = Instance.new("BodyPosition")
-        bodyPosition.MaxForce = Vector3.new(0, math.huge, 0)
+        bodyPosition.MaxForce = Vector3.new(0, 5000, 0)
         bodyPosition.D = 10
 
         bodyGyro = Instance.new("BodyGyro")
         bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
         bodyGyro.D = 10
-
-        bodyVelocity = Instance.new("BodyVelocity")
-        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
     end
 end
 
