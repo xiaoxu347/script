@@ -9,12 +9,12 @@ local moveSpeed = 10
 
 -- 创建漂浮的 BodyPosition 和 BodyGyro
 local bodyPosition = Instance.new("BodyPosition")
-bodyPosition.MaxForce = Vector3.new(0, 5000, 0) -- 限制在 Y 轴上的力，防止漂浮时被强拉
-bodyPosition.D = 10 -- 阻尼值，用于控制运动的阻尼，值越大，越稳定
+bodyPosition.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在 Y 轴上施加力
+bodyPosition.D = 10 -- 阻尼值
 
 local bodyGyro = Instance.new("BodyGyro")
-bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 限制 X 和 Z 轴旋转，防止翻转
-bodyGyro.D = 10 -- 阻尼系数，用于平滑转动
+bodyGyro.MaxTorque = Vector3.new(0, math.huge, 0) -- 仅允许 Y 轴旋转（角色朝向）
+bodyGyro.D = 10 -- 阻尼值
 
 -- 浮动功能
 local function startFloating()
@@ -58,32 +58,31 @@ local function stopFloating()
 
         -- 重置变量
         bodyPosition = Instance.new("BodyPosition")
-        bodyPosition.MaxForce = Vector3.new(0, 5000, 0)
+        bodyPosition.MaxForce = Vector3.new(0, math.huge, 0)
         bodyPosition.D = 10
 
         bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        bodyGyro.MaxTorque = Vector3.new(0, math.huge, 0)
         bodyGyro.D = 10
     end
 end
 
--- 更新 BodyGyro 让角色保持躺下
+-- 更新 BodyGyro 让角色保持朝向
 game:GetService("RunService").Stepped:Connect(function()
     if isFloating then
-        bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0) -- 保持角色平躺姿势
+        -- 保持玩家的躺下姿势，并固定朝向
+        bodyGyro.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(math.rad(90), 0, 0)
     end
 end)
 
--- 监听输入改变并控制角色移动
-UserInputService.InputChanged:Connect(function(input, processed)
-    if not processed and isFloating and input.UserInputType == Enum.UserInputType.Touch then
-        -- 获取屏幕中触摸方向
-        local inputVector = input.Position
-        -- 计算移动方向
-        local deltaX = (inputVector.X - workspace.CurrentCamera.ViewportSize.X / 2) / 100
-        local deltaY = (inputVector.Y - workspace.CurrentCamera.ViewportSize.Y / 2) / 100
+-- 监听手机的触控输入并控制角色移动
+UserInputService.TouchMoved:Connect(function(input, processed)
+    if not processed and isFloating then
+        -- 通过手机触控来控制角色移动方向
+        local deltaX = (input.Position.X - workspace.CurrentCamera.ViewportSize.X / 2) / 100
+        local deltaY = (input.Position.Y - workspace.CurrentCamera.ViewportSize.Y / 2) / 100
         
-        -- 根据触摸的方向调整玩家的 CFrame 移动
+        -- 根据触控方向调整角色的位置
         rootPart.CFrame = rootPart.CFrame * CFrame.new(deltaX * moveSpeed, 0, deltaY * moveSpeed)
     end
 end)
