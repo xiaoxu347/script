@@ -1,9 +1,6 @@
 -- 获取玩家
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-
--- 获取身体部分
-local humanoid = character:FindFirstChildOfClass("Humanoid")
 local rootPart = character:FindFirstChild("HumanoidRootPart")
 
 -- 设定漂浮参数
@@ -23,9 +20,34 @@ bodyPosition.D = 3 -- 让玩家缓慢地达到目标高度
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 允许沿所有轴旋转
 bodyGyro.D = 10
 
--- 正确设置CFrame使玩家完全躺平面朝天
-local layDownCFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0) -- X轴旋转90度，保证玩家躺下
-bodyGyro.CFrame = layDownCFrame
+-- 找到最近的玩家
+local function findNearestPlayer()
+    local nearestPlayer = nil
+    local nearestDistance = math.huge
+
+    for _, otherPlayer in pairs(game.Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = (rootPart.Position - otherPlayer.Character.HumanoidRootPart.Position).Magnitude
+            if distance < nearestDistance then
+                nearestDistance = distance
+                nearestPlayer = otherPlayer
+            end
+        end
+    end
+
+    return nearestPlayer
+end
+
+-- 同步头部朝向最近玩家的面朝方向
+local function syncHeadDirection()
+    local nearestPlayer = findNearestPlayer()
+    if nearestPlayer and nearestPlayer.Character and nearestPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        -- 获取最近玩家的面朝方向
+        local targetDirection = nearestPlayer.Character.HumanoidRootPart.CFrame.LookVector
+        -- 旋转当前玩家使其头部方向与最近玩家的面朝方向同步
+        bodyGyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + targetDirection) * CFrame.Angles(math.rad(90), 0, 0)
+    end
+end
 
 -- 漂浮逻辑
 local function startFloating()
@@ -33,15 +55,21 @@ local function startFloating()
         isFloating = true
 
         -- 禁用玩家动画防止游泳等动画影响
-        if humanoid:FindFirstChild("Animator") then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid:FindFirstChild("Animator") then
             humanoid.Animator:Destroy()
         end
 
         -- 禁用玩家的物理行为防止干扰
-        humanoid.PlatformStand = true
+        if humanoid then
+            humanoid.PlatformStand = true
+        end
 
         -- 确保玩家在漂浮时不会掉下去
         bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
+
+        -- 开始同步头部朝向
+        game:GetService("RunService").Heartbeat:Connect(syncHeadDirection)
     end
 end
 
@@ -50,7 +78,10 @@ local function stopFloating()
         isFloating = false
 
         -- 恢复原来的状态
-        humanoid.PlatformStand = false
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.PlatformStand = false
+        end
         bodyPosition:Destroy()
         bodyGyro:Destroy()
     end
