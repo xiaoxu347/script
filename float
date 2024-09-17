@@ -22,7 +22,7 @@ bodyPosition.D = 3 -- 让玩家缓慢地达到目标高度
 -- 设置BodyGyro的属性，保持玩家的旋转
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 允许沿所有轴旋转
 bodyGyro.D = 10
-bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0) -- 将玩家旋转到面朝天
+bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, math.rad(180)) -- 完全旋转使玩家面朝天
 
 -- 漂浮逻辑
 local function startFloating()
