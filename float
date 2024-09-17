@@ -7,7 +7,7 @@ local humanoid = character:FindFirstChildOfClass("Humanoid")
 local rootPart = character:FindFirstChild("HumanoidRootPart")
 
 -- 设定漂浮参数
-local floatHeight = 3 -- 漂浮的高度
+local floatHeight = 1 -- 漂浮的高度
 local isFloating = false -- 控制是否漂浮
 
 -- 创建用于漂浮的BodyPosition和BodyGyro
