@@ -1,52 +1,22 @@
--- 获取玩家
+local UserInputService = game:GetService("UserInputService")
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
--- 设定漂浮参数
-local floatHeight = 3 -- 漂浮的高度
-local isFloating = false -- 控制是否漂浮
-local moveSpeed = 10 -- 控制上升、下降、前进的速度
+local floatHeight = 10
+local isFloating = false
+local moveSpeed = 10
 
--- 初始化用于漂浮的BodyPosition和BodyGyro（不立即激活）
+-- 创建漂浮的 BodyPosition 和 BodyGyro
 local bodyPosition = Instance.new("BodyPosition")
-bodyPosition.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在Y轴上施加力
-bodyPosition.D = 3 -- 让玩家缓慢地达到目标高度
+bodyPosition.MaxForce = Vector3.new(0, math.huge, 0)
+bodyPosition.D = 10
 
 local bodyGyro = Instance.new("BodyGyro")
-bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 允许沿所有轴旋转
+bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
 bodyGyro.D = 10
 
--- 找到最近的玩家
-local function findNearestPlayer()
-    local nearestPlayer = nil
-    local nearestDistance = math.huge
-
-    for _, otherPlayer in pairs(game.Players:GetPlayers()) do
-        if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local distance = (rootPart.Position - otherPlayer.Character.HumanoidRootPart.Position).Magnitude
-            if distance < nearestDistance then
-                nearestDistance = distance
-                nearestPlayer = otherPlayer
-            end
-        end
-    end
-
-    return nearestPlayer
-end
-
--- 同步头部朝向最近玩家的面朝方向
-local function syncHeadDirection()
-    local nearestPlayer = findNearestPlayer()
-    if nearestPlayer and nearestPlayer.Character and nearestPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        -- 获取最近玩家的面朝方向
-        local targetDirection = nearestPlayer.Character.HumanoidRootPart.CFrame.LookVector
-        -- 旋转当前玩家使其头部方向与最近玩家的面朝方向同步
-        bodyGyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + targetDirection) * CFrame.Angles(math.rad(90), 0, 0)
-    end
-end
-
--- 开始漂浮逻辑
+-- 浮动功能
 local function startFloating()
     if not isFloating then
         isFloating = true
@@ -57,31 +27,21 @@ local function startFloating()
             humanoid.Animator:Destroy()
         end
 
-        -- 禁用玩家的物理行为防止干扰
         humanoid.PlatformStand = true
 
         -- 设置玩家的漂浮高度
         bodyPosition.Parent = rootPart
         bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
-
-        -- 设置保持旋转的BodyGyro
         bodyGyro.Parent = rootPart
-
-        -- 每帧更新头部朝向
-        game:GetService("RunService").Heartbeat:Connect(syncHeadDirection)
     end
 end
 
--- 停止漂浮逻辑
+-- 停止漂浮
 local function stopFloating()
     if isFloating then
         isFloating = false
-
-        -- 恢复原来的状态
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         humanoid.PlatformStand = false
-
-        -- 销毁漂浮和旋转的控制
         bodyPosition:Destroy()
         bodyGyro:Destroy()
 
@@ -95,6 +55,15 @@ local function stopFloating()
         bodyGyro.D = 10
     end
 end
+
+-- 监听虚拟摇杆输入
+UserInputService.InputChanged:Connect(function(input)
+    if isFloating and input.UserInputType == Enum.UserInputType.Gamepad1 then
+        local inputVector = input.Position
+        -- 控制飞行方向，基于摇杆的输入调整玩家移动
+        rootPart.CFrame = rootPart.CFrame * CFrame.new(inputVector.X * moveSpeed, 0, inputVector.Y * moveSpeed)
+    end
+end)
 
 -- 创建 GUI
 local screenGui = Instance.new("ScreenGui")
@@ -117,27 +86,6 @@ cancelButton.Size = UDim2.new(0, 100, 0, 50)
 cancelButton.Position = UDim2.new(0, 0, 0, 50)
 cancelButton.Text = "Cancel"
 cancelButton.Parent = buttonFrame
-
--- 创建上升按钮
-local flyUpButton = Instance.new("TextButton")
-flyUpButton.Size = UDim2.new(0, 100, 0, 50)
-flyUpButton.Position = UDim2.new(0, 0, 0, 100)
-flyUpButton.Text = "Fly Up"
-flyUpButton.Parent = buttonFrame
-
--- 创建下降按钮
-local flyDownButton = Instance.new("TextButton")
-flyDownButton.Size = UDim2.new(0, 100, 0, 50)
-flyDownButton.Position = UDim2.new(0, 0, 0, 150)
-flyDownButton.Text = "Fly Down"
-flyDownButton.Parent = buttonFrame
-
--- 创建前进按钮
-local moveForwardButton = Instance.new("TextButton")
-moveForwardButton.Size = UDim2.new(0, 100, 0, 50)
-moveForwardButton.Position = UDim2.new(0, 100, 0, 0)
-moveForwardButton.Text = "Forward"
-moveForwardButton.Parent = buttonFrame
 
 -- 创建最小化按钮
 local minimizeButton = Instance.new("TextButton")
@@ -177,34 +125,10 @@ end)
 screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
 -- 按钮连接到动作
-
--- 浮动功能
 floatButton.MouseButton1Click:Connect(function()
     startFloating()
 end)
 
--- 取消浮动
 cancelButton.MouseButton1Click:Connect(function()
     stopFloating()
-end)
-
--- 上升功能（世界坐标上升）
-flyUpButton.MouseButton1Click:Connect(function()
-    if isFloating then
-        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, moveSpeed, 0) -- 世界坐标上升
-    end
-end)
-
--- 下降功能（世界坐标下降）
-flyDownButton.MouseButton1Click:Connect(function()
-    if isFloating then
-        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, -moveSpeed, 0) -- 世界坐标下降
-    end
-end)
-
--- 前进功能（沿玩家的朝向前进）
-moveForwardButton.MouseButton1Click:Connect(function()
-    if isFloating then
-        rootPart.CFrame = rootPart.CFrame * CFrame.new(0, 0, -moveSpeed) -- 沿着玩家的LookVector前进
-    end
 end)
