@@ -3,7 +3,7 @@ local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
-local floatHeight = 10
+local floatHeight = 3
 local isFloating = false
 local moveSpeed = 10
 
