@@ -56,9 +56,21 @@ minimizeButton.MouseButton1Click:Connect(function()
     if isMinimized then
         buttonFrame.Size = UDim2.new(0, 200, 0, 200)
         minimizeButton.Text = "-"
+        -- 还原显示所有按钮
+        for _, child in ipairs(buttonFrame:GetChildren()) do
+            if child:IsA("TextButton") and child ~= minimizeButton then
+                child.Visible = true
+            end
+        end
     else
         buttonFrame.Size = UDim2.new(0, 200, 0, 20)
         minimizeButton.Text = "+"
+        -- 隐藏其他按钮，只显示最小化按钮
+        for _, child in ipairs(buttonFrame:GetChildren()) do
+            if child:IsA("TextButton") and child ~= minimizeButton then
+                child.Visible = false
+            end
+        end
     end
     isMinimized = not isMinimized
 end)
@@ -66,7 +78,7 @@ end)
 -- 将 GUI 添加到玩家的屏幕
 screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
--- 拖动功能
+-- 拖动功能支持鼠标和触摸设备
 local dragging
 local dragInput
 local dragStart
@@ -78,7 +90,7 @@ local function update(input)
 end
 
 buttonFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
         startPos = buttonFrame.Position
@@ -92,7 +104,7 @@ buttonFrame.InputBegan:Connect(function(input)
 end)
 
 buttonFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
         dragInput = input
     end
 end)
