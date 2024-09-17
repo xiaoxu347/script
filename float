@@ -139,8 +139,4 @@ end)
 
 cancelButton.MouseButton1Click:Connect(function()
     stopFloating()
-end)抱错[ERROR] </font> TouchMove is not a valid member of UserInputService "UserInputService"
-    Stack Begin
-    Script '', Line 63
-    Script '', Line 1
-    Stack End 
+end)
