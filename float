@@ -13,8 +13,8 @@ bodyPosition.MaxForce = Vector3.new(0, 5000, 0) -- 限制在 Y 轴上的力，�
 bodyPosition.D = 10 -- 阻尼值，用于控制运动的阻尼，值越大，越稳定
 
 local bodyGyro = Instance.new("BodyGyro")
-bodyGyro.MaxTorque = Vector3.new(0, math.huge, 0) -- 仅允许 Y 轴旋转
-bodyGyro.D = 10
+bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 限制 X 和 Z 轴旋转，防止翻转
+bodyGyro.D = 10 -- 阻尼系数，用于平滑转动
 
 -- 浮动功能
 local function startFloating()
@@ -37,8 +37,8 @@ local function startFloating()
         bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
         bodyGyro.Parent = rootPart
 
-        -- 让玩家保持平稳朝向
-        bodyGyro.CFrame = rootPart.CFrame
+        -- 让玩家保持平稳朝向（面朝天躺着）
+        bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0)
     end
 end
 
@@ -62,10 +62,17 @@ local function stopFloating()
         bodyPosition.D = 10
 
         bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(0, math.huge, 0)
+        bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
         bodyGyro.D = 10
     end
 end
+
+-- 更新 BodyGyro 让角色保持躺下
+game:GetService("RunService").Stepped:Connect(function()
+    if isFloating then
+        bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0) -- 保持角色平躺姿势
+    end
+end)
 
 -- 监听输入改变并控制角色移动
 UserInputService.InputChanged:Connect(function(input, processed)
