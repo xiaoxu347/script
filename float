@@ -4,14 +4,14 @@ local character = player.Character or player.CharacterAdded:Wait()
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
 -- 设定漂浮参数
-local floatHeight = 10 -- 漂浮的高度
+local floatHeight = 3 -- 漂浮的高度
 local isFloating = false -- 控制是否漂浮
 local moveSpeed = 10 -- 控制上升、下降、前进的速度
 
 -- 初始化用于漂浮的BodyPosition和BodyGyro（不立即激活）
 local bodyPosition = Instance.new("BodyPosition")
 bodyPosition.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在Y轴上施加力
-bodyPosition.D = 10 -- 让玩家缓慢地达到目标高度
+bodyPosition.D = 3 -- 让玩家缓慢地达到目标高度
 
 local bodyGyro = Instance.new("BodyGyro")
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 允许沿所有轴旋转
