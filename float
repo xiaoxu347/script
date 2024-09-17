@@ -10,32 +10,33 @@ local rootPart = character:FindFirstChild("HumanoidRootPart")
 local floatHeight = 10 -- 漂浮高度
 local isFloating = false -- 控制是否漂浮
 
--- 创建用于漂浮的BodyPosition和BodyGyro
-local bodyPosition = Instance.new("BodyPosition", rootPart)
+-- 创建用于漂浮的BodyVelocity和BodyGyro
+local bodyVelocity = Instance.new("BodyVelocity", rootPart)
 local bodyGyro = Instance.new("BodyGyro", rootPart)
 
-bodyPosition.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在y轴上施加力
-bodyPosition.Damping = 10
+-- 设置BodyVelocity的属性，使玩家垂直漂浮
+bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0) -- 仅在Y轴上施加力
+bodyVelocity.Velocity = Vector3.new(0, 0, 0) -- 不设置水平速度，保持原地
+
+-- 设置BodyGyro的属性，保持玩家的旋转
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- 允许沿所有轴旋转
 bodyGyro.D = 10
-
--- 初始化为面朝天的姿势
-bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0)
+bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0) -- 将玩家旋转到面朝天
 
 -- 漂浮逻辑
 local function startFloating()
     if not isFloating then
         isFloating = true
 
-        -- 设定目标高度
-        bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
-
-        -- 将玩家的动画关闭（防止游泳等动画影响）
+        -- 设定玩家的漂浮高度
+        bodyVelocity.Velocity = Vector3.new(0, 5, 0) -- 轻轻向上漂浮
+        
+        -- 禁用玩家动画防止游泳等动画影响
         if humanoid:FindFirstChild("Animator") then
             humanoid.Animator:Destroy()
         end
 
-        -- 防止玩家移动
+        -- 禁用玩家的物理行为防止干扰
         humanoid.PlatformStand = true
     end
 end
@@ -46,7 +47,7 @@ local function stopFloating()
 
         -- 恢复原来的状态
         humanoid.PlatformStand = false
-        bodyPosition:Destroy()
+        bodyVelocity:Destroy()
         bodyGyro:Destroy()
     end
 end
