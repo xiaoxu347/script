@@ -16,6 +16,11 @@ local bodyGyro = Instance.new("BodyGyro")
 bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
 bodyGyro.D = 10
 
+-- 添加 BodyVelocity 来抵消重力
+local bodyVelocity = Instance.new("BodyVelocity")
+bodyVelocity.Velocity = Vector3.new(0, 0, 0) -- 取消掉落速度
+bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0) -- 只允许垂直方向的力
+
 -- 浮动功能
 local function startFloating()
     if not isFloating then
@@ -29,10 +34,16 @@ local function startFloating()
 
         humanoid.PlatformStand = true
 
+        -- 禁用掉落伤害
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+
         -- 设置玩家的漂浮高度
         bodyPosition.Parent = rootPart
         bodyPosition.Position = rootPart.Position + Vector3.new(0, floatHeight, 0)
         bodyGyro.Parent = rootPart
+
+        -- 抵消掉落速度
+        bodyVelocity.Parent = rootPart
 
         -- 调整玩家躺下的姿势（让玩家完全面朝天）
         bodyGyro.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(90), 0, 0)
@@ -45,8 +56,14 @@ local function stopFloating()
         isFloating = false
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         humanoid.PlatformStand = false
+
+        -- 恢复掉落伤害
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+
+        -- 销毁漂浮组件
         bodyPosition:Destroy()
         bodyGyro:Destroy()
+        bodyVelocity:Destroy()
 
         -- 重置变量
         bodyPosition = Instance.new("BodyPosition")
@@ -56,6 +73,10 @@ local function stopFloating()
         bodyGyro = Instance.new("BodyGyro")
         bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
         bodyGyro.D = 10
+
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
     end
 end
 
@@ -64,15 +85,14 @@ UserInputService.InputChanged:Connect(function(input, processed)
     if not processed and isFloating and input.UserInputType == Enum.UserInputType.Touch then
         -- 获取屏幕中触摸方向
         local inputVector = input.Position
-        -- 计算移动方向，这里通过 X 和 Y 来调整方向
+        -- 计算移动方向
         local deltaX = (inputVector.X - workspace.CurrentCamera.ViewportSize.X / 2) / 100
         local deltaY = (inputVector.Y - workspace.CurrentCamera.ViewportSize.Y / 2) / 100
-
+        
         -- 根据触摸的方向调整玩家的 CFrame 移动
         rootPart.CFrame = rootPart.CFrame * CFrame.new(deltaX * moveSpeed, 0, deltaY * moveSpeed)
     end
 end)
-
 
 -- 创建 GUI
 local screenGui = Instance.new("ScreenGui")
