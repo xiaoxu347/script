@@ -3,6 +3,7 @@ local screenGui = Instance.new("ScreenGui")
 local buttonFrame = Instance.new("Frame")
 buttonFrame.Size = UDim2.new(0, 200, 0, 200)
 buttonFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+buttonFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 buttonFrame.Parent = screenGui
 
 -- 创建浮动按钮
@@ -40,8 +41,67 @@ moveForwardButton.Position = UDim2.new(0, 100, 0, 0)
 moveForwardButton.Text = "Forward"
 moveForwardButton.Parent = buttonFrame
 
+-- 创建最小化按钮
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Size = UDim2.new(0, 20, 0, 20)
+minimizeButton.Position = UDim2.new(1, -20, 0, 0)
+minimizeButton.Text = "-"
+minimizeButton.Parent = buttonFrame
+
+-- GUI 显示隐藏状态
+local isMinimized = false
+
+-- 最小化功能
+minimizeButton.MouseButton1Click:Connect(function()
+    if isMinimized then
+        buttonFrame.Size = UDim2.new(0, 200, 0, 200)
+        minimizeButton.Text = "-"
+    else
+        buttonFrame.Size = UDim2.new(0, 200, 0, 20)
+        minimizeButton.Text = "+"
+    end
+    isMinimized = not isMinimized
+end)
+
 -- 将 GUI 添加到玩家的屏幕
 screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+
+-- 拖动功能
+local dragging
+local dragInput
+local dragStart
+local startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    buttonFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+buttonFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = buttonFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+buttonFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
 
 -- 功能实现
 local player = game.Players.LocalPlayer
