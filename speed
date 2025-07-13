@@ -1,80 +1,231 @@
-local speedValue = 16 -- Default speed value
- 
--- Create GUI
-local gui = Instance.new("ScreenGui")
-gui.Name = "JN HH Gaming"
-gui.Parent = game.Players.LocalPlayer.PlayerGui
- 
-local frame = Instance.new("Frame")
-frame.Name = "SpeedFrame"
-frame.Size = UDim2.new(0, 200, 0, 100)
-frame.Position = UDim2.new(0, 10, 0, 10)
-frame.BackgroundColor3 = Color3.new(0, 0, 0)
-frame.BackgroundTransparency = 0.5
-frame.Parent = gui
- 
-local speedLabel = Instance.new("TextLabel")
-speedLabel.Name = "SpeedLabel"
-speedLabel.Size = UDim2.new(0, 180, 0, 30)
-speedLabel.Position = UDim2.new(0, 10, 0, 10)
-speedLabel.BackgroundColor3 = Color3.new(0, 0, 0)
-speedLabel.TextColor3 = Color3.new(1, 1, 1)
-speedLabel.TextSize = 18
-speedLabel.Text = "Speed: " .. speedValue
-speedLabel.Parent = frame
- 
-local decreaseButton = Instance.new("TextButton")
-decreaseButton.Name = "DecreaseButton"
-decreaseButton.Size = UDim2.new(0, 50, 0, 30)
-decreaseButton.Position = UDim2.new(0, 10, 0, 50)
-decreaseButton.BackgroundColor3 = Color3.new(0, 1, 0)
-decreaseButton.TextColor3 = Color3.new(1, 1, 1)
-decreaseButton.TextSize = 14
-decreaseButton.Text = "-"
-decreaseButton.Parent = frame
- 
-local increaseButton = Instance.new("TextButton")
-increaseButton.Name = "IncreaseButton"
-increaseButton.Size = UDim2.new(0, 50, 0, 30)
-increaseButton.Position = UDim2.new(0, 140, 0, 50)
-increaseButton.BackgroundColor3 = Color3.new(0, 1, 0)
-increaseButton.TextColor3 = Color3.new(1, 1, 1)
-increaseButton.TextSize = 14
-increaseButton.Text = "+"
-increaseButton.Parent = frame
- 
--- Functions
-local function updateSpeedLabel()
-    speedLabel.Text = "Speed: " .. speedValue
+-- Roblox CFrame加速移动脚本
+-- 基于CFrame的地面快速移动
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- 移动配置
+local MOVE_CONFIG = {
+    speed = 2, -- CFrame移动倍数
+    minSpeed = 1,
+    maxSpeed = 10,
+    speedStep = 0.5,
+    isSpeedEnabled = false
+}
+
+local connection = nil
+local lastPosition = nil
+
+-- 创建简洁控制面板
+local function createControlPanel()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "SpeedControl"
+    screenGui.Parent = game.CoreGui
+    screenGui.ResetOnSpawn = false
+    
+    -- 主面板
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 140, 0, 100)
+    mainFrame.Position = UDim2.new(1, -150, 0, 10)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    mainFrame.BackgroundTransparency = 0.2
+    mainFrame.BorderSizePixel = 1
+    mainFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    mainFrame.Parent = screenGui
+    
+    -- 加速开关
+    local speedButton = Instance.new("TextButton")
+    speedButton.Size = UDim2.new(1, -10, 0, 30)
+    speedButton.Position = UDim2.new(0, 5, 0, 5)
+    speedButton.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+    speedButton.Text = "开启加速"
+    speedButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    speedButton.TextScaled = true
+    speedButton.Font = Enum.Font.SourceSansBold
+    speedButton.Parent = mainFrame
+    
+    -- 速度显示
+    local speedLabel = Instance.new("TextLabel")
+    speedLabel.Size = UDim2.new(1, -10, 0, 18)
+    speedLabel.Position = UDim2.new(0, 5, 0, 40)
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.Text = "倍速: " .. MOVE_CONFIG.speed .. "x"
+    speedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    speedLabel.TextScaled = true
+    speedLabel.Font = Enum.Font.SourceSans
+    speedLabel.Parent = mainFrame
+    
+    -- 速度调节
+    local speedDownButton = Instance.new("TextButton")
+    speedDownButton.Size = UDim2.new(0, 60, 0, 25)
+    speedDownButton.Position = UDim2.new(0, 5, 0, 65)
+    speedDownButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    speedDownButton.Text = "-"
+    speedDownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    speedDownButton.TextScaled = true
+    speedDownButton.Font = Enum.Font.SourceSansBold
+    speedDownButton.Parent = mainFrame
+    
+    local speedUpButton = Instance.new("TextButton")
+    speedUpButton.Size = UDim2.new(0, 60, 0, 25)
+    speedUpButton.Position = UDim2.new(0, 75, 0, 65)
+    speedUpButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    speedUpButton.Text = "+"
+    speedUpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    speedUpButton.TextScaled = true
+    speedUpButton.Font = Enum.Font.SourceSansBold
+    speedUpButton.Parent = mainFrame
+    
+    return {
+        speedButton = speedButton,
+        speedLabel = speedLabel,
+        speedUpButton = speedUpButton,
+        speedDownButton = speedDownButton
+    }
 end
- 
-local function decreaseSpeed()
-    if speedValue > 1 then
-        speedValue = speedValue - 1
-        updateSpeedLabel()
+
+-- 获取角色组件
+local function getCharacterParts()
+    local character = LocalPlayer.Character
+    if not character then return nil, nil end
+    
+    local humanoid = character:FindFirstChild("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    
+    return humanoid, rootPart
+end
+
+-- 开始CFrame加速
+local function startCFrameSpeed()
+    if connection then return end
+    
+    local humanoid, rootPart = getCharacterParts()
+    if not humanoid or not rootPart then return end
+    
+    lastPosition = rootPart.CFrame.Position
+    
+    connection = RunService.Heartbeat:Connect(function()
+        local humanoid, rootPart = getCharacterParts()
+        if not humanoid or not rootPart then
+            stopCFrameSpeed()
+            return
+        end
+        
+        -- 检查玩家是否在移动
+        local currentPosition = rootPart.CFrame.Position
+        local moveDirection = currentPosition - lastPosition
+        
+        -- 只在水平方向移动时加速（保持Y轴不变）
+        if moveDirection.Magnitude > 0.01 then
+            local horizontalMove = Vector3.new(moveDirection.X, 0, moveDirection.Z)
+            
+            if horizontalMove.Magnitude > 0.01 then
+                -- 计算加速后的位置
+                local acceleratedMove = horizontalMove * MOVE_CONFIG.speed
+                local newPosition = lastPosition + acceleratedMove
+                
+                -- 保持原有的Y坐标和旋转
+                local newCFrame = CFrame.new(
+                    Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z),
+                    Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z) + rootPart.CFrame.LookVector
+                )
+                
+                rootPart.CFrame = newCFrame
+            end
+        end
+        
+        lastPosition = rootPart.CFrame.Position
+    end)
+end
+
+-- 停止CFrame加速
+local function stopCFrameSpeed()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+    lastPosition = nil
+end
+
+-- 切换加速状态
+local function toggleSpeed(elements)
+    MOVE_CONFIG.isSpeedEnabled = not MOVE_CONFIG.isSpeedEnabled
+    
+    if MOVE_CONFIG.isSpeedEnabled then
+        startCFrameSpeed()
+        elements.speedButton.Text = "关闭加速"
+        elements.speedButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+    else
+        stopCFrameSpeed()
+        elements.speedButton.Text = "开启加速"
+        elements.speedButton.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
     end
 end
- 
-local function increaseSpeed()
-    speedValue = speedValue + 1
-    updateSpeedLabel()
+
+-- 更新速度显示
+local function updateSpeedLabel(elements)
+    elements.speedLabel.Text = "倍速: " .. MOVE_CONFIG.speed .. "x"
 end
- 
-local function onDecreaseButtonClicked()
-    decreaseSpeed()
+
+-- 调整速度
+local function adjustSpeed(change, elements)
+    MOVE_CONFIG.speed = math.max(MOVE_CONFIG.minSpeed, 
+                        math.min(MOVE_CONFIG.maxSpeed, 
+                               MOVE_CONFIG.speed + change))
+    updateSpeedLabel(elements)
 end
- 
-local function onIncreaseButtonClicked()
-    increaseSpeed()
+
+-- 监听角色重生
+local function setupCharacterListener(elements)
+    LocalPlayer.CharacterAdded:Connect(function()
+        wait(1)
+        if MOVE_CONFIG.isSpeedEnabled then
+            stopCFrameSpeed()
+            wait(0.1)
+            startCFrameSpeed()
+        end
+    end)
 end
- 
--- Event connections
-decreaseButton.MouseButton1Click:Connect(onDecreaseButtonClicked)
-increaseButton.MouseButton1Click:Connect(onIncreaseButtonClicked)
- 
--- Main loop
-while true do
-    -- Modify the speed of the character (you need to replace this with the appropriate code for your specific game)
-    game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = speedValue
-    wait(0.1) -- Adjust the wait time as desired
+
+-- 主函数
+local function main()
+    print("CFrame加速移动脚本已启动!")
+    
+    -- 创建控制面板
+    local elements = createControlPanel()
+    
+    -- 按钮事件
+    elements.speedButton.MouseButton1Click:Connect(function()
+        toggleSpeed(elements)
+    end)
+    
+    elements.speedUpButton.MouseButton1Click:Connect(function()
+        adjustSpeed(MOVE_CONFIG.speedStep, elements)
+    end)
+    
+    elements.speedDownButton.MouseButton1Click:Connect(function()
+        adjustSpeed(-MOVE_CONFIG.speedStep, elements)
+    end)
+    
+    -- 角色重生监听
+    setupCharacterListener(elements)
+    
+    -- 初始化
+    updateSpeedLabel(elements)
+    
+    print("使用手机虚拟摇杆正常移动")
+    print("开启加速后移动速度会按倍数增加")
 end
+
+-- 清理函数
+local function cleanup()
+    stopCFrameSpeed()
+end
+
+-- 启动
+main()
+
+-- 游戏关闭时清理
+game:BindToClose(cleanup)
