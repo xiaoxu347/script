@@ -1,4 +1,8 @@
-
+-- ============================================
+-- 五条悟 · 术式顺转 瞬移脚本
+-- 精简版 | 可拖动 | 可最小化 | 准心硬锁目标
+-- 放入 StarterPlayer → StarterPlayerScripts
+-- ============================================
 
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -19,8 +23,7 @@ local CONFIG = {
 local isMobile     = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 local lastTeleport = 0
 
--- 当前摄像机锁定连接
-local lockConn = nil
+
 
 -- ============================================
 -- 特效
@@ -76,36 +79,6 @@ local function getNearestPlayerToScreenCenter()
 end
 
 -- ============================================
--- 硬锁摄像机：每帧直接看向目标，持续 1.5 秒
--- ============================================
-local function hardLockCamera(targetHRP)
-    -- 断掉旧锁定
-    if lockConn then lockConn:Disconnect(); lockConn = nil end
-
-    local prevType = Camera.CameraType
-    Camera.CameraType = Enum.CameraType.Scriptable
-
-    local elapsed = 0
-
-    lockConn = RunService.RenderStepped:Connect(function(dt)
-        elapsed += dt
-
-        -- 目标失效 or 超时 → 解锁
-        if not targetHRP or not targetHRP.Parent or elapsed >= 1.5 then
-            Camera.CameraType = prevType
-            lockConn:Disconnect()
-            lockConn = nil
-            return
-        end
-
-        -- 每帧直接覆写摄像机，对准目标头部
-        local camPos   = Camera.CFrame.Position
-        local lookAt   = targetHRP.Position + Vector3.new(0, 1.5, 0)
-        Camera.CFrame  = CFrame.lookAt(camPos, lookAt)
-    end)
-end
-
--- ============================================
 -- 瞬移逻辑
 -- ============================================
 local function teleportToPlayer(goFront)
@@ -141,10 +114,6 @@ local function teleportToPlayer(goFront)
     )
     localChar:PivotTo(newCF)
     playTeleportEffect(localChar)
-
-    -- 等一帧让引擎更新角色位置，再锁定摄像机
-    task.wait()
-    hardLockCamera(targetHRP)
 
     print(string.format("[五条悟] → %s 的%s方", target.Name, goFront and "前" or "后"))
 end
