@@ -1,0 +1,411 @@
+
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera      = workspace.CurrentCamera
+
+local CONFIG = {
+    TELEPORT_OFFSET = 4,
+    EFFECT_DURATION = 0.12,
+    UI_KEY_FRONT    = Enum.KeyCode.Q,
+    UI_KEY_BACK     = Enum.KeyCode.E,
+    COOLDOWN        = 0.5,
+}
+
+local isMobile     = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local lastTeleport = 0
+
+-- 当前摄像机锁定连接
+local lockConn = nil
+
+-- ============================================
+-- 特效
+-- ============================================
+local function playTeleportEffect(character)
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local orig = part.Transparency
+            part.Transparency = 1
+            task.delay(CONFIG.EFFECT_DURATION, function()
+                if part and part.Parent then part.Transparency = orig end
+            end)
+        end
+    end
+    local att = Instance.new("Attachment")
+    att.Parent = hrp
+    local em = Instance.new("ParticleEmitter")
+    em.Color          = ColorSequence.new(Color3.fromRGB(80, 180, 255))
+    em.LightEmission  = 1
+    em.LightInfluence = 0
+    em.Size           = NumberSequence.new({NumberSequenceKeypoint.new(0,2), NumberSequenceKeypoint.new(1,0)})
+    em.Lifetime       = NumberRange.new(0.2, 0.4)
+    em.Rate           = 0
+    em.SpreadAngle    = Vector2.new(360, 360)
+    em.Speed          = NumberRange.new(15, 30)
+    em.Parent         = att
+    em:Emit(30)
+    task.delay(0.6, function() att:Destroy() end)
+end
+
+-- ============================================
+-- 获取屏幕中间最近玩家
+-- ============================================
+local function getNearestPlayerToScreenCenter()
+    local localChar = LocalPlayer.Character
+    if not localChar or not localChar:FindFirstChild("HumanoidRootPart") then return nil end
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    local best, bestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        local char = p.Character
+        if not char then continue end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        local sp, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+        if not onScreen then continue end
+        local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+        if d < bestDist then bestDist = d; best = p end
+    end
+    return best
+end
+
+-- ============================================
+-- 硬锁摄像机：每帧直接看向目标，持续 1.5 秒
+-- ============================================
+local function hardLockCamera(targetHRP)
+    -- 断掉旧锁定
+    if lockConn then lockConn:Disconnect(); lockConn = nil end
+
+    local prevType = Camera.CameraType
+    Camera.CameraType = Enum.CameraType.Scriptable
+
+    local elapsed = 0
+
+    lockConn = RunService.RenderStepped:Connect(function(dt)
+        elapsed += dt
+
+        -- 目标失效 or 超时 → 解锁
+        if not targetHRP or not targetHRP.Parent or elapsed >= 1.5 then
+            Camera.CameraType = prevType
+            lockConn:Disconnect()
+            lockConn = nil
+            return
+        end
+
+        -- 每帧直接覆写摄像机，对准目标头部
+        local camPos   = Camera.CFrame.Position
+        local lookAt   = targetHRP.Position + Vector3.new(0, 1.5, 0)
+        Camera.CFrame  = CFrame.lookAt(camPos, lookAt)
+    end)
+end
+
+-- ============================================
+-- 瞬移逻辑
+-- ============================================
+local function teleportToPlayer(goFront)
+    local now = tick()
+    if now - lastTeleport < CONFIG.COOLDOWN then return end
+    lastTeleport = now
+
+    local localChar = LocalPlayer.Character
+    if not localChar then return end
+    local localHRP = localChar:FindFirstChild("HumanoidRootPart")
+    if not localHRP then return end
+
+    local target = getNearestPlayerToScreenCenter()
+    if not target then warn("[五条悟] 未找到目标！") return end
+
+    local targetChar = target.Character
+    if not targetChar then return end
+    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then return end
+
+    local look   = targetHRP.CFrame.LookVector
+    local offset = goFront
+        and (targetHRP.Position + look  * CONFIG.TELEPORT_OFFSET)
+        or  (targetHRP.Position - look  * CONFIG.TELEPORT_OFFSET)
+
+    playTeleportEffect(localChar)
+    task.wait(CONFIG.EFFECT_DURATION)
+
+    -- 角色面向目标
+    local newCF = CFrame.lookAt(
+        Vector3.new(offset.X, targetHRP.Position.Y, offset.Z),
+        Vector3.new(targetHRP.Position.X, targetHRP.Position.Y, targetHRP.Position.Z)
+    )
+    localChar:PivotTo(newCF)
+    playTeleportEffect(localChar)
+
+    -- 等一帧让引擎更新角色位置，再锁定摄像机
+    task.wait()
+    hardLockCamera(targetHRP)
+
+    print(string.format("[五条悟] → %s 的%s方", target.Name, goFront and "前" or "后"))
+end
+
+-- ============================================
+-- 创建 GUI：可拖动标题栏 + 最小化按钮
+-- ============================================
+local function createUI()
+    if LocalPlayer.PlayerGui:FindFirstChild("GojoUI") then
+        LocalPlayer.PlayerGui.GojoUI:Destroy()
+    end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name           = "GojoUI"
+    ScreenGui.ResetOnSpawn   = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.IgnoreGuiInset = true
+    ScreenGui.Parent         = LocalPlayer.PlayerGui
+
+    local btnW      = isMobile and 68  or 60
+    local btnH      = isMobile and 48  or 40
+    local gap       = 6
+    local padX      = 7
+    local padY      = 4
+    local titleH    = 20
+    local hintH     = isMobile and 13 or 11
+    local panelW    = padX*2 + btnW*2 + gap
+    local panelHFull = padY + titleH + hintH + 4 + btnH + padY
+    local panelHMin  = padY + titleH + padY
+
+    -- 主面板
+    local Frame = Instance.new("Frame")
+    Frame.Size             = UDim2.new(0, panelW, 0, panelHFull)
+    Frame.BackgroundColor3 = Color3.fromRGB(4, 6, 20)
+    Frame.BackgroundTransparency = 0.1
+    Frame.BorderSizePixel  = 0
+    Frame.ClipsDescendants = true
+    Frame.ZIndex           = 10
+    if isMobile then
+        Frame.Position = UDim2.new(1, -(panelW + 10), 1, -(panelHFull + 140))
+    else
+        Frame.Position = UDim2.new(0.5, -panelW/2, 1, -(panelHFull + 10))
+    end
+    Frame.Parent = ScreenGui
+
+    Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 10)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color        = Color3.fromRGB(60, 150, 255)
+    stroke.Transparency = 0.55
+    stroke.Thickness    = 1
+    stroke.Parent       = Frame
+
+    local topBar = Instance.new("Frame")
+    topBar.Size             = UDim2.new(1, 0, 0, 2)
+    topBar.BackgroundColor3 = Color3.fromRGB(70, 180, 255)
+    topBar.BorderSizePixel  = 0
+    topBar.ZIndex           = 11
+    topBar.Parent           = Frame
+    Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
+
+    -- 标题栏（可拖动）
+    local TitleBar = Instance.new("TextButton")
+    TitleBar.Size               = UDim2.new(1, 0, 0, titleH)
+    TitleBar.Position           = UDim2.new(0, 0, 0, padY)
+    TitleBar.BackgroundTransparency = 1
+    TitleBar.Text               = ""
+    TitleBar.ZIndex             = 12
+    TitleBar.Parent             = Frame
+
+    local TitleText = Instance.new("TextLabel")
+    TitleText.Size               = UDim2.new(1, -24, 1, 0)
+    TitleText.Position           = UDim2.new(0, 5, 0, 0)
+    TitleText.BackgroundTransparency = 1
+    TitleText.Text               = "✦ 蒼 術式順転"
+    TitleText.TextColor3         = Color3.fromRGB(100, 195, 255)
+    TitleText.TextSize           = isMobile and 11 or 10
+    TitleText.Font               = Enum.Font.GothamBold
+    TitleText.TextXAlignment     = Enum.TextXAlignment.Left
+    TitleText.ZIndex             = 13
+    TitleText.Parent             = TitleBar
+
+    -- 最小化按钮
+    local MinBtn = Instance.new("TextButton")
+    MinBtn.Size             = UDim2.new(0, 17, 0, 17)
+    MinBtn.Position         = UDim2.new(1, -20, 0, padY + 2)
+    MinBtn.BackgroundColor3 = Color3.fromRGB(20, 75, 170)
+    MinBtn.BorderSizePixel  = 0
+    MinBtn.Text             = "—"
+    MinBtn.TextColor3       = Color3.fromRGB(190, 225, 255)
+    MinBtn.TextSize         = 10
+    MinBtn.Font             = Enum.Font.GothamBold
+    MinBtn.ZIndex           = 14
+    MinBtn.Parent           = Frame
+    Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 4)
+
+    -- 内容区
+    local Content = Instance.new("Frame")
+    Content.Size             = UDim2.new(1, 0, 0, hintH + 4 + btnH)
+    Content.Position         = UDim2.new(0, 0, 0, padY + titleH + 2)
+    Content.BackgroundTransparency = 1
+    Content.BorderSizePixel  = 0
+    Content.ZIndex           = 11
+    Content.Parent           = Frame
+
+    -- Hint
+    local Hint = Instance.new("TextLabel")
+    Hint.Name                = "HintLabel"
+    Hint.Size                = UDim2.new(1, -padX*2, 0, hintH)
+    Hint.Position            = UDim2.new(0, padX, 0, 0)
+    Hint.BackgroundTransparency = 1
+    Hint.Text                = "目标：无"
+    Hint.TextColor3          = Color3.fromRGB(140, 210, 255)
+    Hint.TextSize            = isMobile and 10 or 9
+    Hint.Font                = Enum.Font.Gotham
+    Hint.ZIndex              = 12
+    Hint.Parent              = Content
+
+    -- 按钮工厂
+    local function makeBtn(icon, label, xPos, callback)
+        local Btn = Instance.new("TextButton")
+        Btn.Size             = UDim2.new(0, btnW, 0, btnH)
+        Btn.Position         = UDim2.new(0, xPos, 0, hintH + 4)
+        Btn.BackgroundColor3 = Color3.fromRGB(12, 60, 145)
+        Btn.BorderSizePixel  = 0
+        Btn.Text             = ""
+        Btn.AutoButtonColor  = false
+        Btn.ZIndex           = 12
+        Btn.Parent           = Content
+
+        Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 8)
+
+        local grad = Instance.new("UIGradient")
+        grad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(32, 105, 215)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(8,  42, 118)),
+        })
+        grad.Rotation = 100
+        grad.Parent   = Btn
+
+        local bStroke = Instance.new("UIStroke")
+        bStroke.Color        = Color3.fromRGB(80, 165, 255)
+        bStroke.Transparency = 0.65
+        bStroke.Thickness    = 1
+        bStroke.Parent       = Btn
+
+        local Icon = Instance.new("TextLabel")
+        Icon.Size               = UDim2.new(1, 0, 0, isMobile and 24 or 20)
+        Icon.Position           = UDim2.new(0, 0, 0, isMobile and 5 or 4)
+        Icon.BackgroundTransparency = 1
+        Icon.Text               = icon
+        Icon.TextSize           = isMobile and 20 or 17
+        Icon.Font               = Enum.Font.GothamBold
+        Icon.TextColor3         = Color3.fromRGB(255, 255, 255)
+        Icon.ZIndex             = 13
+        Icon.Parent             = Btn
+
+        local Lbl = Instance.new("TextLabel")
+        Lbl.Size               = UDim2.new(1, 0, 0, isMobile and 13 or 11)
+        Lbl.Position           = UDim2.new(0, 0, 1, isMobile and -14 or -12)
+        Lbl.BackgroundTransparency = 1
+        Lbl.Text               = label
+        Lbl.TextSize           = isMobile and 9 or 8
+        Lbl.Font               = Enum.Font.GothamBold
+        Lbl.TextColor3         = Color3.fromRGB(200, 230, 255)
+        Lbl.ZIndex             = 13
+        Lbl.Parent             = Btn
+
+        Btn.Activated:Connect(function()
+            TweenService:Create(Btn, TweenInfo.new(0.07), {BackgroundColor3 = Color3.fromRGB(50,145,255)}):Play()
+            task.delay(0.18, function()
+                if Btn and Btn.Parent then
+                    TweenService:Create(Btn, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(12,60,145)}):Play()
+                end
+            end)
+            callback()
+        end)
+
+        if not isMobile then
+            Btn.MouseEnter:Connect(function()
+                TweenService:Create(Btn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,85,175)}):Play()
+            end)
+            Btn.MouseLeave:Connect(function()
+                TweenService:Create(Btn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(12,60,145)}):Play()
+            end)
+        end
+    end
+
+    makeBtn("⚡", "前方 [Q]", padX,             function() teleportToPlayer(true)  end)
+    makeBtn("💨", "后方 [E]", padX + btnW + gap, function() teleportToPlayer(false) end)
+
+    -- 最小化逻辑
+    local minimized = false
+    MinBtn.Activated:Connect(function()
+        minimized = not minimized
+        if minimized then
+            Content.Visible = false
+            TweenService:Create(Frame, TweenInfo.new(0.12), {Size = UDim2.new(0, panelW, 0, panelHMin)}):Play()
+            MinBtn.Text = "+"
+        else
+            Content.Visible = true
+            TweenService:Create(Frame, TweenInfo.new(0.12), {Size = UDim2.new(0, panelW, 0, panelHFull)}):Play()
+            MinBtn.Text = "—"
+        end
+    end)
+
+    -- 拖动逻辑（鼠标 + 触摸通用）
+    local dragging  = false
+    local dragStart = Vector2.zero
+    local startPos  = Frame.Position
+
+    TitleBar.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        dragging  = true
+        dragStart = Vector2.new(input.Position.X, input.Position.Y)
+        startPos  = Frame.Position
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+        Frame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    return Hint
+end
+
+-- ============================================
+-- 初始化
+-- ============================================
+local HintLabel = createUI()
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == CONFIG.UI_KEY_FRONT then teleportToPlayer(true)
+    elseif input.KeyCode == CONFIG.UI_KEY_BACK then teleportToPlayer(false) end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not HintLabel or not HintLabel.Parent then return end
+    local t = getNearestPlayerToScreenCenter()
+    if t then
+        HintLabel.Text       = "目标：" .. t.Name
+        HintLabel.TextColor3 = Color3.fromRGB(70, 255, 160)
+    else
+        HintLabel.Text       = "目标：无"
+        HintLabel.TextColor3 = Color3.fromRGB(140, 210, 255)
+    end
+end)
+
+print("[五条悟] 已加载 ✦ 平台：" .. (isMobile and "手机" or "PC"))
