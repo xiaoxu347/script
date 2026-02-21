@@ -147,10 +147,10 @@ local function teleportToPlayer(targetPlayer, goFront)
         offset = targetRoot.Position - targetLook * 5
     end
 
-    -- 落在目标同一高度偏上一点，避免卡地
-    offset = Vector3.new(offset.X, targetRoot.Position.Y + 3, offset.Z)
+    -- 保持和目标相同高度，不做额外偏移（避免干扰朝向计算）
+    offset = Vector3.new(offset.X, targetRoot.Position.Y, offset.Z)
 
-    -- 角色面朝目标
+    -- 角色面朝目标（水平朝向，Y 轴对齐避免仰角/俯角问题）
     local newCF = CFrame.lookAt(offset, Vector3.new(targetRoot.Position.X, offset.Y, targetRoot.Position.Z))
     player.Character:PivotTo(newCF)
 
