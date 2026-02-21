@@ -1,4 +1,4 @@
--- Roblox CFrame加速移动脚本（双模式版 + 最小化 + 修复倍速）
+-- Roblox CFrame加速移动脚本（双模式版 + 最小化UI）
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -10,7 +10,8 @@ local MOVE_CONFIG = {
     maxSpeed = 10,
     speedStep = 0.5,
     isSpeedEnabled = false,
-    isAnimMoveEnabled = false
+    isAnimMoveEnabled = false,
+    isMinimized = false
 }
 
 local speedConnection = nil
@@ -25,41 +26,41 @@ local function createControlPanel()
     screenGui.Parent = game.CoreGui
     screenGui.ResetOnSpawn = false
 
-    -- 顶栏（始终显示，包含最小化按钮）
-    local topBar = Instance.new("Frame")
-    topBar.Size = UDim2.new(0, 140, 0, 24)
-    topBar.Position = UDim2.new(1, -150, 0, 10)
-    topBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    topBar.BorderSizePixel = 1
-    topBar.BorderColor3 = Color3.fromRGB(255, 255, 255)
-    topBar.Parent = screenGui
+    -- 标题栏（始终显示）
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(0, 140, 0, 24)
+    titleBar.Position = UDim2.new(1, -150, 0, 10)
+    titleBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    titleBar.BorderSizePixel = 1
+    titleBar.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    titleBar.Parent = screenGui
 
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Size = UDim2.new(1, -28, 1, 0)
-    titleLabel.Position = UDim2.new(0, 5, 0, 0)
+    titleLabel.Position = UDim2.new(0, 6, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = "移动脚本"
-    titleLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    titleLabel.Text = "⚡ 移动脚本"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     titleLabel.TextScaled = true
     titleLabel.Font = Enum.Font.SourceSansBold
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    titleLabel.Parent = topBar
+    titleLabel.Parent = titleBar
 
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 24, 1, 0)
-    toggleBtn.Position = UDim2.new(1, -24, 0, 0)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    toggleBtn.Text = "−"
-    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleBtn.TextScaled = true
-    toggleBtn.Font = Enum.Font.SourceSansBold
-    toggleBtn.BorderSizePixel = 0
-    toggleBtn.Parent = topBar
+    local minimizeButton = Instance.new("TextButton")
+    minimizeButton.Size = UDim2.new(0, 24, 1, 0)
+    minimizeButton.Position = UDim2.new(1, -24, 0, 0)
+    minimizeButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    minimizeButton.Text = "－"
+    minimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    minimizeButton.TextScaled = true
+    minimizeButton.Font = Enum.Font.SourceSansBold
+    minimizeButton.BorderSizePixel = 0
+    minimizeButton.Parent = titleBar
 
-    -- 主面板（可折叠部分）
+    -- 主面板（可隐藏）
     local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 140, 0, 148)
-    mainFrame.Position = UDim2.new(1, -150, 0, 34)
+    mainFrame.Size = UDim2.new(0, 140, 0, 145)
+    mainFrame.Position = UDim2.new(1, -150, 0, 34)  -- 紧接标题栏下方
     mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     mainFrame.BackgroundTransparency = 0.2
     mainFrame.BorderSizePixel = 1
@@ -80,12 +81,12 @@ local function createControlPanel()
     -- 速度显示
     local speedLabel = Instance.new("TextLabel")
     speedLabel.Size = UDim2.new(1, -10, 0, 18)
-    speedLabel.Position = UDim2.new(0, 5, 0, 40)
+    speedLabel.Position = UDim2.new(0, 5, 0, 42)
     speedLabel.BackgroundTransparency = 1
     speedLabel.Text = "倍速: " .. MOVE_CONFIG.speed .. "x"
-    speedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    speedLabel.TextColor3 = Color3.fromRGB(255, 220, 80)
     speedLabel.TextScaled = true
-    speedLabel.Font = Enum.Font.SourceSans
+    speedLabel.Font = Enum.Font.SourceSansBold
     speedLabel.Parent = mainFrame
 
     -- 速度调节
@@ -93,7 +94,7 @@ local function createControlPanel()
     speedDownButton.Size = UDim2.new(0, 60, 0, 25)
     speedDownButton.Position = UDim2.new(0, 5, 0, 65)
     speedDownButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-    speedDownButton.Text = "-"
+    speedDownButton.Text = "－"
     speedDownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
     speedDownButton.TextScaled = true
     speedDownButton.Font = Enum.Font.SourceSansBold
@@ -103,7 +104,7 @@ local function createControlPanel()
     speedUpButton.Size = UDim2.new(0, 60, 0, 25)
     speedUpButton.Position = UDim2.new(0, 75, 0, 65)
     speedUpButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-    speedUpButton.Text = "+"
+    speedUpButton.Text = "＋"
     speedUpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
     speedUpButton.TextScaled = true
     speedUpButton.Font = Enum.Font.SourceSansBold
@@ -113,14 +114,14 @@ local function createControlPanel()
     local divider = Instance.new("Frame")
     divider.Size = UDim2.new(1, -10, 0, 1)
     divider.Position = UDim2.new(0, 5, 0, 97)
-    divider.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    divider.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
     divider.BorderSizePixel = 0
     divider.Parent = mainFrame
 
     -- 动画移动按钮
     local animMoveButton = Instance.new("TextButton")
     animMoveButton.Size = UDim2.new(1, -10, 0, 30)
-    animMoveButton.Position = UDim2.new(0, 5, 0, 108)
+    animMoveButton.Position = UDim2.new(0, 5, 0, 105)
     animMoveButton.BackgroundColor3 = Color3.fromRGB(0, 80, 170)
     animMoveButton.Text = "动画移动: 关"
     animMoveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -128,20 +129,14 @@ local function createControlPanel()
     animMoveButton.Font = Enum.Font.SourceSansBold
     animMoveButton.Parent = mainFrame
 
-    -- 最小化逻辑
-    local isMinimized = false
-    toggleBtn.MouseButton1Click:Connect(function()
-        isMinimized = not isMinimized
-        mainFrame.Visible = not isMinimized
-        toggleBtn.Text = isMinimized and "+" or "−"
-    end)
-
     return {
         speedButton = speedButton,
         speedLabel = speedLabel,
         speedUpButton = speedUpButton,
         speedDownButton = speedDownButton,
-        animMoveButton = animMoveButton
+        animMoveButton = animMoveButton,
+        mainFrame = mainFrame,
+        minimizeButton = minimizeButton
     }
 end
 
@@ -157,15 +152,14 @@ local function getCharacterParts()
 end
 
 local function forceMove(rootPart, humanoid, newCFrame)
-    if rootPart.Anchored then
-        rootPart.Anchored = false
-    end
+    if rootPart.Anchored then rootPart.Anchored = false end
     for _, v in ipairs(rootPart:GetChildren()) do
         if v:IsA("BodyPosition") or v:IsA("BodyVelocity")
             or v:IsA("AlignPosition") or v:IsA("VectorForce") then
             v:Destroy()
         end
     end
+    if humanoid.WalkSpeed == 0 then humanoid.WalkSpeed = 16 end
     rootPart.CFrame = newCFrame
     rootPart.AssemblyLinearVelocity = Vector3.new(
         0, rootPart.AssemblyLinearVelocity.Y, 0
@@ -173,9 +167,7 @@ local function forceMove(rootPart, humanoid, newCFrame)
 end
 
 -- ============================================================
--- 【修复】模式一：普通加速
--- 改用 MoveDirection × WalkSpeed × 倍数 × dt，和动画模式一致
--- 不再用位置差，彻底解决倍速偏慢问题
+-- 【修复】普通加速：改用 MoveDirection 驱动，速度准确
 -- ============================================================
 local function stopCFrameSpeed()
     if speedConnection then
@@ -186,6 +178,8 @@ end
 
 local function startCFrameSpeed()
     if speedConnection then return end
+    local humanoid, rootPart = getCharacterParts()
+    if not humanoid or not rootPart then return end
 
     speedConnection = RunService.Heartbeat:Connect(function(dt)
         local humanoid, rootPart = getCharacterParts()
@@ -198,21 +192,25 @@ local function startCFrameSpeed()
         local moveDir = humanoid.MoveDirection
         if moveDir.Magnitude > 0.01 then
             local currentPos = rootPart.CFrame.Position
-            -- 用实际WalkSpeed × 倍数 × dt计算本帧位移
-            local frameMove = moveDir * humanoid.WalkSpeed * MOVE_CONFIG.speed * dt
+            -- 直接用 MoveDirection * WalkSpeed * 倍数 * dt，速度精准
+            local baseSpeed = humanoid.WalkSpeed
+            local frameMove = moveDir * baseSpeed * MOVE_CONFIG.speed * dt
             local newPos = Vector3.new(
                 currentPos.X + frameMove.X,
                 currentPos.Y,
                 currentPos.Z + frameMove.Z
             )
-            local rotCFrame = rootPart.CFrame - currentPos
-            forceMove(rootPart, humanoid, CFrame.new(newPos) * rotCFrame)
+            local rotCFrame = rootPart.CFrame - rootPart.CFrame.Position
+            rootPart.CFrame = CFrame.new(newPos) * rotCFrame
+            rootPart.AssemblyLinearVelocity = Vector3.new(
+                0, rootPart.AssemblyLinearVelocity.Y, 0
+            )
         end
     end)
 end
 
 -- ============================================================
--- 模式二：动画中移动（RenderStepped，最后执行覆盖游戏脚本）
+-- 动画中移动（RenderStepped，能覆盖游戏Heartbeat锁位）
 -- ============================================================
 local function stopAnimMove()
     if animMoveConnection then
@@ -223,6 +221,8 @@ end
 
 local function startAnimMove()
     if animMoveConnection then return end
+    local humanoid, rootPart = getCharacterParts()
+    if not humanoid or not rootPart then return end
 
     animMoveConnection = RunService.RenderStepped:Connect(function(dt)
         local humanoid, rootPart = getCharacterParts()
@@ -242,7 +242,7 @@ local function startAnimMove()
                 currentPos.Y,
                 currentPos.Z + frameMove.Z
             )
-            local rotCFrame = rootPart.CFrame - currentPos
+            local rotCFrame = rootPart.CFrame - rootPart.CFrame.Position
             forceMove(rootPart, humanoid, CFrame.new(newPos) * rotCFrame)
         end
     end)
@@ -277,6 +277,12 @@ local function toggleAnimMove(elements)
     end
 end
 
+local function toggleMinimize(elements)
+    MOVE_CONFIG.isMinimized = not MOVE_CONFIG.isMinimized
+    elements.mainFrame.Visible = not MOVE_CONFIG.isMinimized
+    elements.minimizeButton.Text = MOVE_CONFIG.isMinimized and "＋" or "－"
+end
+
 local function updateSpeedLabel(elements)
     elements.speedLabel.Text = "倍速: " .. MOVE_CONFIG.speed .. "x"
 end
@@ -294,14 +300,10 @@ local function setupCharacterListener()
     LocalPlayer.CharacterAdded:Connect(function()
         task.wait(1)
         if MOVE_CONFIG.isSpeedEnabled then
-            stopCFrameSpeed()
-            task.wait(0.1)
-            startCFrameSpeed()
+            stopCFrameSpeed(); task.wait(0.1); startCFrameSpeed()
         end
         if MOVE_CONFIG.isAnimMoveEnabled then
-            stopAnimMove()
-            task.wait(0.1)
-            startAnimMove()
+            stopAnimMove(); task.wait(0.1); startAnimMove()
         end
     end)
 end
@@ -324,11 +326,13 @@ local function main()
     elements.animMoveButton.MouseButton1Click:Connect(function()
         toggleAnimMove(elements)
     end)
+    elements.minimizeButton.MouseButton1Click:Connect(function()
+        toggleMinimize(elements)
+    end)
 
     setupCharacterListener()
     updateSpeedLabel(elements)
-
-    print("脚本已启动 | 普通加速 + 动画移动双模式")
+    print("脚本已启动 | 最小化: 标题栏－按钮 | 普通加速+动画移动可同时开启")
 end
 
 local function cleanup()
