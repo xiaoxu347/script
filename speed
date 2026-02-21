@@ -1,4 +1,4 @@
--- Roblox CFrame加速移动脚本（技能动画强制移动版）
+-- Roblox CFrame加速移动脚本（双模式版）
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -9,21 +9,26 @@ local MOVE_CONFIG = {
     minSpeed = 1,
     maxSpeed = 10,
     speedStep = 0.5,
-    isSpeedEnabled = false
+    isSpeedEnabled = false,
+    isAnimMoveEnabled = false  -- 动画中移动模式
 }
 
-local connection = nil
+local speedConnection = nil
+local animMoveConnection = nil
 local lastPosition = nil
-local lastCFrame = nil
 
+-- ============================================================
+-- UI 创建
+-- ============================================================
 local function createControlPanel()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "SpeedControl"
     screenGui.Parent = game.CoreGui
     screenGui.ResetOnSpawn = false
 
+    -- 主面板（加高以容纳新按钮）
     local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 140, 0, 100)
+    mainFrame.Size = UDim2.new(0, 140, 0, 140)
     mainFrame.Position = UDim2.new(1, -150, 0, 10)
     mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     mainFrame.BackgroundTransparency = 0.2
@@ -31,6 +36,7 @@ local function createControlPanel()
     mainFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
     mainFrame.Parent = screenGui
 
+    -- 加速开关
     local speedButton = Instance.new("TextButton")
     speedButton.Size = UDim2.new(1, -10, 0, 30)
     speedButton.Position = UDim2.new(0, 5, 0, 5)
@@ -41,6 +47,7 @@ local function createControlPanel()
     speedButton.Font = Enum.Font.SourceSansBold
     speedButton.Parent = mainFrame
 
+    -- 速度显示
     local speedLabel = Instance.new("TextLabel")
     speedLabel.Size = UDim2.new(1, -10, 0, 18)
     speedLabel.Position = UDim2.new(0, 5, 0, 40)
@@ -51,6 +58,7 @@ local function createControlPanel()
     speedLabel.Font = Enum.Font.SourceSans
     speedLabel.Parent = mainFrame
 
+    -- 速度调节
     local speedDownButton = Instance.new("TextButton")
     speedDownButton.Size = UDim2.new(0, 60, 0, 25)
     speedDownButton.Position = UDim2.new(0, 5, 0, 65)
@@ -71,14 +79,29 @@ local function createControlPanel()
     speedUpButton.Font = Enum.Font.SourceSansBold
     speedUpButton.Parent = mainFrame
 
+    -- 【新增】动画中移动模式按钮
+    local animMoveButton = Instance.new("TextButton")
+    animMoveButton.Size = UDim2.new(1, -10, 0, 30)
+    animMoveButton.Position = UDim2.new(0, 5, 0, 100)
+    animMoveButton.BackgroundColor3 = Color3.fromRGB(0, 80, 170)
+    animMoveButton.Text = "动画移动: 关"
+    animMoveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    animMoveButton.TextScaled = true
+    animMoveButton.Font = Enum.Font.SourceSansBold
+    animMoveButton.Parent = mainFrame
+
     return {
         speedButton = speedButton,
         speedLabel = speedLabel,
         speedUpButton = speedUpButton,
-        speedDownButton = speedDownButton
+        speedDownButton = speedDownButton,
+        animMoveButton = animMoveButton
     }
 end
 
+-- ============================================================
+-- 工具函数
+-- ============================================================
 local function getCharacterParts()
     local character = LocalPlayer.Character
     if not character then return nil, nil, nil end
@@ -87,38 +110,20 @@ local function getCharacterParts()
     return humanoid, rootPart, character
 end
 
--- ============================================================
--- 【核心】强制移动函数
--- 同时处理 WalkSpeed锁、Anchored锁、BodyMover锁
--- ============================================================
-local function forceMove(rootPart, humanoid, character, targetCFrame)
-    -- 1. 解除Anchored锁
+local function forceMove(rootPart, humanoid, newCFrame)
     if rootPart.Anchored then
         rootPart.Anchored = false
     end
-
-    -- 2. 解除BodyPosition/BodyVelocity等约束干扰
-    --    这些约束会把角色钉在原地，直接删除
     for _, v in ipairs(rootPart:GetChildren()) do
-        if v:IsA("BodyPosition")
-            or v:IsA("BodyVelocity")
-            or v:IsA("AlignPosition")
-            or v:IsA("VectorForce") then
+        if v:IsA("BodyPosition") or v:IsA("BodyVelocity")
+            or v:IsA("AlignPosition") or v:IsA("VectorForce") then
             v:Destroy()
         end
     end
-
-    -- 3. 如果WalkSpeed被锁为0，临时恢复
-    --    （只在加速时恢复，不影响技能本身逻辑）
     if humanoid.WalkSpeed == 0 then
         humanoid.WalkSpeed = 16
     end
-
-    -- 4. 用RenderStepped级别的CFrame强制写入
-    --    直接设置比PivotTo更底层，在Heartbeat末尾执行能覆盖游戏脚本
-    rootPart.CFrame = targetCFrame
-
-    -- 5. 清零水平速度防止物理回弹
+    rootPart.CFrame = newCFrame
     rootPart.AssemblyLinearVelocity = Vector3.new(
         0,
         rootPart.AssemblyLinearVelocity.Y,
@@ -126,82 +131,104 @@ local function forceMove(rootPart, humanoid, character, targetCFrame)
     )
 end
 
+-- ============================================================
+-- 模式一：普通加速（Heartbeat，位置差驱动）
+-- ============================================================
 local function stopCFrameSpeed()
-    if connection then
-        connection:Disconnect()
-        connection = nil
+    if speedConnection then
+        speedConnection:Disconnect()
+        speedConnection = nil
     end
     lastPosition = nil
-    lastCFrame = nil
 end
 
 local function startCFrameSpeed()
-    if connection then return end
+    if speedConnection then return end
 
-    local humanoid, rootPart, character = getCharacterParts()
+    local humanoid, rootPart = getCharacterParts()
     if not humanoid or not rootPart then return end
 
     lastPosition = rootPart.CFrame.Position
-    lastCFrame = rootPart.CFrame
 
-    -- ============================================================
-    -- 【关键】使用 RenderStepped 而非 Heartbeat
-    -- RenderStepped 在每帧渲染前最后执行，优先级高于游戏的Heartbeat
-    -- 能覆盖游戏脚本在Heartbeat里写的CFrame
-    -- ============================================================
-    connection = RunService.RenderStepped:Connect(function(dt)
-        local humanoid, rootPart, character = getCharacterParts()
-        if not humanoid or not rootPart then
-            stopCFrameSpeed()
-            return
-        end
+    speedConnection = RunService.Heartbeat:Connect(function()
+        local humanoid, rootPart = getCharacterParts()
+        if not humanoid or not rootPart then stopCFrameSpeed() return end
 
         local state = humanoid:GetState()
         if state == Enum.HumanoidStateType.Dead then return end
         if state == Enum.HumanoidStateType.Seated then
             lastPosition = rootPart.CFrame.Position
-            lastCFrame = rootPart.CFrame
             return
         end
 
         local currentPosition = rootPart.CFrame.Position
+        local moveDirection = currentPosition - lastPosition
 
-        -- ============================================================
-        -- 【关键改动】判断移动方向的来源改为 MoveDirection
-        -- MoveDirection 是玩家摇杆/键盘的真实输入向量
-        -- 不再依赖"位置差"（因为动画锁住后位置差永远为0）
-        -- ============================================================
-        local moveDir = humanoid.MoveDirection
-
-        if moveDir.Magnitude > 0.01 then
-            -- 根据摇杆输入方向 + 速度 + dt 计算本帧应移动的距离
-            -- 基础速度用WalkSpeed，再乘以倍数，再乘以dt保持帧率无关
-            local baseSpeed = math.max(humanoid.WalkSpeed, 16) -- 防止WalkSpeed=0时不动
-            local frameMove = moveDir * baseSpeed * MOVE_CONFIG.speed * dt
-
-            local newPosition = Vector3.new(
-                currentPosition.X + frameMove.X,
-                currentPosition.Y,
-                currentPosition.Z + frameMove.Z
-            )
-
-            -- 保留旋转，只替换位置
-            local rotationCFrame = rootPart.CFrame - rootPart.CFrame.Position
-            local newCFrame = CFrame.new(newPosition) * rotationCFrame
-
-            -- 强制写入，处理各种锁
-            forceMove(rootPart, humanoid, character, newCFrame)
-
-            lastCFrame = newCFrame
+        if moveDirection.Magnitude > 0.01 then
+            local horizontalMove = Vector3.new(moveDirection.X, 0, moveDirection.Z)
+            if horizontalMove.Magnitude > 0.01 then
+                local acceleratedMove = horizontalMove * MOVE_CONFIG.speed
+                local newPosition = lastPosition + acceleratedMove
+                local rotCFrame = rootPart.CFrame - rootPart.CFrame.Position
+                rootPart.CFrame = CFrame.new(
+                    Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z)
+                ) * rotCFrame
+                rootPart.AssemblyLinearVelocity = Vector3.new(
+                    0, rootPart.AssemblyLinearVelocity.Y, 0
+                )
+            end
         end
 
         lastPosition = rootPart.CFrame.Position
     end)
 end
 
+-- ============================================================
+-- 模式二：动画中移动（RenderStepped，MoveDirection驱动）
+-- ============================================================
+local function stopAnimMove()
+    if animMoveConnection then
+        animMoveConnection:Disconnect()
+        animMoveConnection = nil
+    end
+end
+
+local function startAnimMove()
+    if animMoveConnection then return end
+
+    local humanoid, rootPart = getCharacterParts()
+    if not humanoid or not rootPart then return end
+
+    animMoveConnection = RunService.RenderStepped:Connect(function(dt)
+        local humanoid, rootPart = getCharacterParts()
+        if not humanoid or not rootPart then stopAnimMove() return end
+
+        local state = humanoid:GetState()
+        if state == Enum.HumanoidStateType.Dead then return end
+        if state == Enum.HumanoidStateType.Seated then return end
+
+        local moveDir = humanoid.MoveDirection
+        if moveDir.Magnitude > 0.01 then
+            local currentPosition = rootPart.CFrame.Position
+            local baseSpeed = math.max(humanoid.WalkSpeed, 16)
+            local frameMove = moveDir * baseSpeed * MOVE_CONFIG.speed * dt
+            local newPosition = Vector3.new(
+                currentPosition.X + frameMove.X,
+                currentPosition.Y,
+                currentPosition.Z + frameMove.Z
+            )
+            local rotCFrame = rootPart.CFrame - rootPart.CFrame.Position
+            local newCFrame = CFrame.new(newPosition) * rotCFrame
+            forceMove(rootPart, humanoid, newCFrame)
+        end
+    end)
+end
+
+-- ============================================================
+-- 切换函数
+-- ============================================================
 local function toggleSpeed(elements)
     MOVE_CONFIG.isSpeedEnabled = not MOVE_CONFIG.isSpeedEnabled
-
     if MOVE_CONFIG.isSpeedEnabled then
         startCFrameSpeed()
         elements.speedButton.Text = "关闭加速"
@@ -210,6 +237,19 @@ local function toggleSpeed(elements)
         stopCFrameSpeed()
         elements.speedButton.Text = "开启加速"
         elements.speedButton.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+    end
+end
+
+local function toggleAnimMove(elements)
+    MOVE_CONFIG.isAnimMoveEnabled = not MOVE_CONFIG.isAnimMoveEnabled
+    if MOVE_CONFIG.isAnimMoveEnabled then
+        startAnimMove()
+        elements.animMoveButton.Text = "动画移动: 开"
+        elements.animMoveButton.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
+    else
+        stopAnimMove()
+        elements.animMoveButton.Text = "动画移动: 关"
+        elements.animMoveButton.BackgroundColor3 = Color3.fromRGB(0, 80, 170)
     end
 end
 
@@ -223,7 +263,10 @@ local function adjustSpeed(change, elements)
     updateSpeedLabel(elements)
 end
 
-local function setupCharacterListener(elements)
+-- ============================================================
+-- 角色重生处理
+-- ============================================================
+local function setupCharacterListener()
     LocalPlayer.CharacterAdded:Connect(function()
         task.wait(1)
         if MOVE_CONFIG.isSpeedEnabled then
@@ -231,32 +274,42 @@ local function setupCharacterListener(elements)
             task.wait(0.1)
             startCFrameSpeed()
         end
+        if MOVE_CONFIG.isAnimMoveEnabled then
+            stopAnimMove()
+            task.wait(0.1)
+            startAnimMove()
+        end
     end)
 end
 
+-- ============================================================
+-- 主函数
+-- ============================================================
 local function main()
-    print("CFrame加速移动脚本（技能动画强制移动版）已启动!")
+    print("CFrame加速移动脚本（双模式版）已启动!")
 
     local elements = createControlPanel()
 
     elements.speedButton.MouseButton1Click:Connect(function()
         toggleSpeed(elements)
     end)
-
     elements.speedUpButton.MouseButton1Click:Connect(function()
         adjustSpeed(MOVE_CONFIG.speedStep, elements)
     end)
-
     elements.speedDownButton.MouseButton1Click:Connect(function()
         adjustSpeed(-MOVE_CONFIG.speedStep, elements)
     end)
+    elements.animMoveButton.MouseButton1Click:Connect(function()
+        toggleAnimMove(elements)
+    end)
 
-    setupCharacterListener(elements)
+    setupCharacterListener()
     updateSpeedLabel(elements)
 end
 
 local function cleanup()
     stopCFrameSpeed()
+    stopAnimMove()
 end
 
 main()
