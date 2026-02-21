@@ -1,4 +1,4 @@
--- Roblox CFrame加速移动脚本（双模式版）
+-- Roblox CFrame加速移动脚本（双模式版 + 最小化 + 修复倍速）
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -10,12 +10,11 @@ local MOVE_CONFIG = {
     maxSpeed = 10,
     speedStep = 0.5,
     isSpeedEnabled = false,
-    isAnimMoveEnabled = false  -- 动画中移动模式
+    isAnimMoveEnabled = false
 }
 
 local speedConnection = nil
 local animMoveConnection = nil
-local lastPosition = nil
 
 -- ============================================================
 -- UI 创建
@@ -26,10 +25,41 @@ local function createControlPanel()
     screenGui.Parent = game.CoreGui
     screenGui.ResetOnSpawn = false
 
-    -- 主面板（加高以容纳新按钮）
+    -- 顶栏（始终显示，包含最小化按钮）
+    local topBar = Instance.new("Frame")
+    topBar.Size = UDim2.new(0, 140, 0, 24)
+    topBar.Position = UDim2.new(1, -150, 0, 10)
+    topBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    topBar.BorderSizePixel = 1
+    topBar.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    topBar.Parent = screenGui
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -28, 1, 0)
+    titleLabel.Position = UDim2.new(0, 5, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "移动脚本"
+    titleLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    titleLabel.TextScaled = true
+    titleLabel.Font = Enum.Font.SourceSansBold
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = topBar
+
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, 24, 1, 0)
+    toggleBtn.Position = UDim2.new(1, -24, 0, 0)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    toggleBtn.Text = "−"
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.TextScaled = true
+    toggleBtn.Font = Enum.Font.SourceSansBold
+    toggleBtn.BorderSizePixel = 0
+    toggleBtn.Parent = topBar
+
+    -- 主面板（可折叠部分）
     local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 140, 0, 140)
-    mainFrame.Position = UDim2.new(1, -150, 0, 10)
+    mainFrame.Size = UDim2.new(0, 140, 0, 148)
+    mainFrame.Position = UDim2.new(1, -150, 0, 34)
     mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     mainFrame.BackgroundTransparency = 0.2
     mainFrame.BorderSizePixel = 1
@@ -79,16 +109,32 @@ local function createControlPanel()
     speedUpButton.Font = Enum.Font.SourceSansBold
     speedUpButton.Parent = mainFrame
 
-    -- 【新增】动画中移动模式按钮
+    -- 分割线
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(1, -10, 0, 1)
+    divider.Position = UDim2.new(0, 5, 0, 97)
+    divider.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    divider.BorderSizePixel = 0
+    divider.Parent = mainFrame
+
+    -- 动画移动按钮
     local animMoveButton = Instance.new("TextButton")
     animMoveButton.Size = UDim2.new(1, -10, 0, 30)
-    animMoveButton.Position = UDim2.new(0, 5, 0, 100)
+    animMoveButton.Position = UDim2.new(0, 5, 0, 108)
     animMoveButton.BackgroundColor3 = Color3.fromRGB(0, 80, 170)
     animMoveButton.Text = "动画移动: 关"
     animMoveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
     animMoveButton.TextScaled = true
     animMoveButton.Font = Enum.Font.SourceSansBold
     animMoveButton.Parent = mainFrame
+
+    -- 最小化逻辑
+    local isMinimized = false
+    toggleBtn.MouseButton1Click:Connect(function()
+        isMinimized = not isMinimized
+        mainFrame.Visible = not isMinimized
+        toggleBtn.Text = isMinimized and "+" or "−"
+    end)
 
     return {
         speedButton = speedButton,
@@ -104,10 +150,10 @@ end
 -- ============================================================
 local function getCharacterParts()
     local character = LocalPlayer.Character
-    if not character then return nil, nil, nil end
+    if not character then return nil, nil end
     local humanoid = character:FindFirstChild("Humanoid")
     local rootPart = character:FindFirstChild("HumanoidRootPart")
-    return humanoid, rootPart, character
+    return humanoid, rootPart
 end
 
 local function forceMove(rootPart, humanoid, newCFrame)
@@ -120,71 +166,53 @@ local function forceMove(rootPart, humanoid, newCFrame)
             v:Destroy()
         end
     end
-    if humanoid.WalkSpeed == 0 then
-        humanoid.WalkSpeed = 16
-    end
     rootPart.CFrame = newCFrame
     rootPart.AssemblyLinearVelocity = Vector3.new(
-        0,
-        rootPart.AssemblyLinearVelocity.Y,
-        0
+        0, rootPart.AssemblyLinearVelocity.Y, 0
     )
 end
 
 -- ============================================================
--- 模式一：普通加速（Heartbeat，位置差驱动）
+-- 【修复】模式一：普通加速
+-- 改用 MoveDirection × WalkSpeed × 倍数 × dt，和动画模式一致
+-- 不再用位置差，彻底解决倍速偏慢问题
 -- ============================================================
 local function stopCFrameSpeed()
     if speedConnection then
         speedConnection:Disconnect()
         speedConnection = nil
     end
-    lastPosition = nil
 end
 
 local function startCFrameSpeed()
     if speedConnection then return end
 
-    local humanoid, rootPart = getCharacterParts()
-    if not humanoid or not rootPart then return end
-
-    lastPosition = rootPart.CFrame.Position
-
-    speedConnection = RunService.Heartbeat:Connect(function()
+    speedConnection = RunService.Heartbeat:Connect(function(dt)
         local humanoid, rootPart = getCharacterParts()
         if not humanoid or not rootPart then stopCFrameSpeed() return end
 
         local state = humanoid:GetState()
         if state == Enum.HumanoidStateType.Dead then return end
-        if state == Enum.HumanoidStateType.Seated then
-            lastPosition = rootPart.CFrame.Position
-            return
+        if state == Enum.HumanoidStateType.Seated then return end
+
+        local moveDir = humanoid.MoveDirection
+        if moveDir.Magnitude > 0.01 then
+            local currentPos = rootPart.CFrame.Position
+            -- 用实际WalkSpeed × 倍数 × dt计算本帧位移
+            local frameMove = moveDir * humanoid.WalkSpeed * MOVE_CONFIG.speed * dt
+            local newPos = Vector3.new(
+                currentPos.X + frameMove.X,
+                currentPos.Y,
+                currentPos.Z + frameMove.Z
+            )
+            local rotCFrame = rootPart.CFrame - currentPos
+            forceMove(rootPart, humanoid, CFrame.new(newPos) * rotCFrame)
         end
-
-        local currentPosition = rootPart.CFrame.Position
-        local moveDirection = currentPosition - lastPosition
-
-        if moveDirection.Magnitude > 0.01 then
-            local horizontalMove = Vector3.new(moveDirection.X, 0, moveDirection.Z)
-            if horizontalMove.Magnitude > 0.01 then
-                local acceleratedMove = horizontalMove * MOVE_CONFIG.speed
-                local newPosition = lastPosition + acceleratedMove
-                local rotCFrame = rootPart.CFrame - rootPart.CFrame.Position
-                rootPart.CFrame = CFrame.new(
-                    Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z)
-                ) * rotCFrame
-                rootPart.AssemblyLinearVelocity = Vector3.new(
-                    0, rootPart.AssemblyLinearVelocity.Y, 0
-                )
-            end
-        end
-
-        lastPosition = rootPart.CFrame.Position
     end)
 end
 
 -- ============================================================
--- 模式二：动画中移动（RenderStepped，MoveDirection驱动）
+-- 模式二：动画中移动（RenderStepped，最后执行覆盖游戏脚本）
 -- ============================================================
 local function stopAnimMove()
     if animMoveConnection then
@@ -196,9 +224,6 @@ end
 local function startAnimMove()
     if animMoveConnection then return end
 
-    local humanoid, rootPart = getCharacterParts()
-    if not humanoid or not rootPart then return end
-
     animMoveConnection = RunService.RenderStepped:Connect(function(dt)
         local humanoid, rootPart = getCharacterParts()
         if not humanoid or not rootPart then stopAnimMove() return end
@@ -209,17 +234,16 @@ local function startAnimMove()
 
         local moveDir = humanoid.MoveDirection
         if moveDir.Magnitude > 0.01 then
-            local currentPosition = rootPart.CFrame.Position
+            local currentPos = rootPart.CFrame.Position
             local baseSpeed = math.max(humanoid.WalkSpeed, 16)
             local frameMove = moveDir * baseSpeed * MOVE_CONFIG.speed * dt
-            local newPosition = Vector3.new(
-                currentPosition.X + frameMove.X,
-                currentPosition.Y,
-                currentPosition.Z + frameMove.Z
+            local newPos = Vector3.new(
+                currentPos.X + frameMove.X,
+                currentPos.Y,
+                currentPos.Z + frameMove.Z
             )
-            local rotCFrame = rootPart.CFrame - rootPart.CFrame.Position
-            local newCFrame = CFrame.new(newPosition) * rotCFrame
-            forceMove(rootPart, humanoid, newCFrame)
+            local rotCFrame = rootPart.CFrame - currentPos
+            forceMove(rootPart, humanoid, CFrame.new(newPos) * rotCFrame)
         end
     end)
 end
@@ -264,7 +288,7 @@ local function adjustSpeed(change, elements)
 end
 
 -- ============================================================
--- 角色重生处理
+-- 角色重生
 -- ============================================================
 local function setupCharacterListener()
     LocalPlayer.CharacterAdded:Connect(function()
@@ -286,8 +310,6 @@ end
 -- 主函数
 -- ============================================================
 local function main()
-    print("CFrame加速移动脚本（双模式版）已启动!")
-
     local elements = createControlPanel()
 
     elements.speedButton.MouseButton1Click:Connect(function()
@@ -305,6 +327,8 @@ local function main()
 
     setupCharacterListener()
     updateSpeedLabel(elements)
+
+    print("脚本已启动 | 普通加速 + 动画移动双模式")
 end
 
 local function cleanup()
