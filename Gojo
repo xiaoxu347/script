@@ -113,8 +113,31 @@ local function teleportToPlayer(goFront)
         Vector3.new(targetHRP.Position.X, targetHRP.Position.Y, targetHRP.Position.Z)
     )
     localChar:PivotTo(newCF)
-    playTeleportEffect(localChar)
 
+    -- 瞬间自瞄：切 Scriptable，在下一个 RenderStepped 帧内对准目标，
+    -- 再下一帧立刻还原。只占两帧，玩家几乎感觉不到，但足以让
+    -- Roblox 的角色位移锁失效、朝向正确定下来。
+    local prevType = Camera.CameraType
+    Camera.CameraType = Enum.CameraType.Scriptable
+
+    local snapDone = false
+    local snapConn
+    snapConn = RunService.RenderStepped:Connect(function()
+        if not snapDone then
+            -- 第 1 帧：摄像机直接对准目标
+            local snapTarget = targetHRP and targetHRP.Parent
+                and (targetHRP.Position + Vector3.new(0, 1.5, 0))
+                or Camera.CFrame.LookVector * 100 + Camera.CFrame.Position
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, snapTarget)
+            snapDone = true
+        else
+            -- 第 2 帧：立即还原，断开连接
+            Camera.CameraType = prevType
+            snapConn:Disconnect()
+        end
+    end)
+
+    playTeleportEffect(localChar)
     print(string.format("[五条悟] → %s 的%s方", target.Name, goFront and "前" or "后"))
 end
 
