@@ -1,206 +1,184 @@
--- 传送到最近玩家身前/身后的脚本
--- 适用于Roblox客户端脚本
-
+-- 传送脚本 v2 - 客户端LocalScript
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local camera = workspace.CurrentCamera
 
--- 创建或获取GUI（防止重复创建）
-local screenGui = playerGui:FindFirstChild("TeleportGui")
-if screenGui then
-    screenGui:Destroy()
-end
+-- 清除旧GUI
+local old = playerGui:FindFirstChild("TeleportGui")
+if old then old:Destroy() end
 
-screenGui = Instance.new("ScreenGui")
+-- 主GUI
+local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "TeleportGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- 创建"传送到身后"按钮
-local behindButton = Instance.new("TextButton")
-behindButton.Name = "BehindButton"
-behindButton.Size = UDim2.new(0, 200, 0, 50)
-behindButton.Position = UDim2.new(0, 10, 0, 10)
-behindButton.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
-behindButton.BorderSizePixel = 0
-behindButton.Text = "传送到身后 [T]"
-behindButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-behindButton.TextSize = 18
-behindButton.Font = Enum.Font.SourceSansBold
-behindButton.Parent = screenGui
+-- 主容器（可拖动）
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 150, 0, 90)
+frame.Position = UDim2.new(0, 10, 0, 10)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
 
-local cornerBehind = Instance.new("UICorner")
-cornerBehind.CornerRadius = UDim.new(0, 8)
-cornerBehind.Parent = behindButton
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 8)
+frameCorner.Parent = frame
 
--- 创建"传送到身前"按钮
-local frontButton = Instance.new("TextButton")
-frontButton.Name = "FrontButton"
-frontButton.Size = UDim2.new(0, 200, 0, 50)
-frontButton.Position = UDim2.new(0, 10, 0, 70)
-frontButton.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
-frontButton.BorderSizePixel = 0
-frontButton.Text = "传送到身前 [Y]"
-frontButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-frontButton.TextSize = 18
-frontButton.Font = Enum.Font.SourceSansBold
-frontButton.Parent = screenGui
+-- 标题栏
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 22)
+titleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = frame
 
-local cornerFront = Instance.new("UICorner")
-cornerFront.CornerRadius = UDim.new(0, 8)
-cornerFront.Parent = frontButton
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent = titleBar
 
--- 获取屏幕中心点
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -24, 1, 0)
+titleLabel.Position = UDim2.new(0, 6, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "📍 传送"
+titleLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+titleLabel.TextSize = 12
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleBar
+
+-- 最小化按钮
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 20, 0, 16)
+minBtn.Position = UDim2.new(1, -22, 0, 3)
+minBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+minBtn.BorderSizePixel = 0
+minBtn.Text = "−"
+minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minBtn.TextSize = 14
+minBtn.Font = Enum.Font.SourceSansBold
+minBtn.Parent = titleBar
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 4)
+minCorner.Parent = minBtn
+
+-- 按钮容器
+local btnContainer = Instance.new("Frame")
+btnContainer.Size = UDim2.new(1, -10, 1, -28)
+btnContainer.Position = UDim2.new(0, 5, 0, 25)
+btnContainer.BackgroundTransparency = 1
+btnContainer.Parent = frame
+
+local layout = Instance.new("UIListLayout")
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 5)
+layout.Parent = btnContainer
+
+-- 创建按钮的通用函数
+local function makeButton(text, color, order)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 26)
+    btn.BackgroundColor3 = color
+    btn.BorderSizePixel = 0
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 13
+    btn.Font = Enum.Font.SourceSansBold
+    btn.LayoutOrder = order
+    btn.Parent = btnContainer
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = btn
+    return btn
+end
+
+local behindBtn = makeButton("⬅ 传送到身后", Color3.fromRGB(0, 130, 210), 1)
+local frontBtn  = makeButton("➡ 传送到身前", Color3.fromRGB(150, 60, 200), 2)
+
+-- 最小化逻辑
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    btnContainer.Visible = not minimized
+    frame.Size = minimized and UDim2.new(0, 150, 0, 24) or UDim2.new(0, 150, 0, 90)
+    minBtn.Text = minimized and "+" or "−"
+end)
+
+-- 工具函数
 local function getScreenCenter()
-    local viewportSize = camera.ViewportSize
-    return Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+    local v = camera.ViewportSize
+    return Vector2.new(v.X / 2, v.Y / 2)
 end
 
--- 将3D位置转换为屏幕坐标
-local function worldToScreen(position)
-    local screenPoint, onScreen = camera:WorldToScreenPoint(position)
-    return Vector2.new(screenPoint.X, screenPoint.Y), onScreen
-end
-
--- 找到离屏幕中心最近的玩家
-local function findClosestPlayerToScreenCenter()
-    local screenCenter = getScreenCenter()
-    local closestPlayer = nil
-    local closestDistance = math.huge
-
-    for _, otherPlayer in pairs(Players:GetPlayers()) do
-        if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local screenPos, onScreen = worldToScreen(otherPlayer.Character.HumanoidRootPart.Position)
+local function findClosestPlayer()
+    local center = getScreenCenter()
+    local closest, minDist = nil, math.huge
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local sp, onScreen = camera:WorldToScreenPoint(p.Character.HumanoidRootPart.Position)
             if onScreen then
-                local distance = (screenCenter - screenPos).Magnitude
-                if distance < closestDistance then
-                    closestDistance = distance
-                    closestPlayer = otherPlayer
-                end
+                local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                if d < minDist then minDist = d; closest = p end
             end
         end
     end
-
-    return closestPlayer
+    return closest
 end
 
--- 瞬间自瞄两帧让角色朝向生效（绕过位移锁）
-local function snapFaceTarget(targetHRP)
-    local prevType = camera.CameraType
-    camera.CameraType = Enum.CameraType.Scriptable
+local function canTeleport()
+    local c = player.Character
+    return c and c:FindFirstChild("HumanoidRootPart") and c:FindFirstChild("Humanoid") and c.Humanoid.Health > 0
+end
 
-    local snapDone = false
-    local snapConn
-    snapConn = RunService.RenderStepped:Connect(function()
-        if not snapDone then
-            -- 第1帧：摄像机对准目标，驱动角色朝向
-            if targetHRP and targetHRP.Parent then
-                local lookAt = targetHRP.Position + Vector3.new(0, 1.5, 0)
-                camera.CFrame = CFrame.lookAt(camera.CFrame.Position, lookAt)
-            end
-            snapDone = true
-        else
-            -- 第2帧：立即还原
-            camera.CameraType = prevType
-            snapConn:Disconnect()
-        end
+local function teleport(offset)
+    if not canTeleport() then return false, "你已死亡" end
+    local target = findClosestPlayer()
+    if not target then return false, "无目标" end
+    local tr = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not tr then return false, "目标不存在" end
+
+    local dir = tr.CFrame.LookVector * offset
+    local pos = tr.Position + dir + Vector3.new(0, 3, 0)
+    player.Character.HumanoidRootPart.CFrame = CFrame.new(pos, tr.Position)
+    
+    -- 摄像头朝向目标玩家
+    local lookDir = (tr.Position - pos).Unit
+    camera.CFrame = CFrame.lookAt(camera.CFrame.Position, camera.CFrame.Position + lookDir)
+    
+    return true, "成功"
+end
+
+-- 按钮反馈
+local function feedback(btn, origText, origColor, ok)
+    btn.Text = ok and "✓ 成功" or "✗ 失败"
+    btn.BackgroundColor3 = ok and Color3.fromRGB(0, 200, 80) or Color3.fromRGB(220, 50, 50)
+    task.delay(1.5, function()
+        btn.Text = origText
+        btn.BackgroundColor3 = origColor
     end)
 end
 
--- 检查角色状态是否合法
-local function checkCharacter(targetPlayer)
-    if not player.Character
-        or not player.Character:FindFirstChild("HumanoidRootPart")
-        or not player.Character:FindFirstChild("Humanoid") then
-        return false, "你的角色不存在或已死亡"
-    end
-    if player.Character.Humanoid.Health <= 0 then
-        return false, "你已死亡，无法传送"
-    end
-    if not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        return false, "目标玩家不存在"
-    end
-    if targetPlayer.Character:FindFirstChild("Humanoid") and targetPlayer.Character.Humanoid.Health <= 0 then
-        return false, "目标玩家已死亡"
-    end
-    return true, nil
-end
-
--- 核心传送函数，goFront=true 传送到身前，false 传送到身后
-local function teleportToPlayer(targetPlayer, goFront)
-    local ok, err = checkCharacter(targetPlayer)
-    if not ok then return false, err end
-
-    local targetRoot = targetPlayer.Character.HumanoidRootPart
-    local targetLook = targetRoot.CFrame.LookVector
-
-    local offset
-    if goFront then
-        -- 身前：出现在目标面前，与目标面对面
-        offset = targetRoot.Position + targetLook * 5
-    else
-        -- 身后：出现在目标背后
-        offset = targetRoot.Position - targetLook * 5
-    end
-
-    -- 保持和目标相同高度，不做额外偏移（避免干扰朝向计算）
-    offset = Vector3.new(offset.X, targetRoot.Position.Y, offset.Z)
-
-    -- 角色面朝目标（水平朝向，Y 轴对齐避免仰角/俯角问题）
-    local newCF = CFrame.lookAt(offset, Vector3.new(targetRoot.Position.X, offset.Y, targetRoot.Position.Z))
-    player.Character:PivotTo(newCF)
-
-    -- 两帧自瞄让朝向在位移锁下也能生效
-    snapFaceTarget(targetRoot)
-
-    return true, "传送成功"
-end
-
--- 按钮反馈通用函数
-local function doTeleport(button, defaultText, defaultColor, goFront)
-    local closestPlayer = findClosestPlayerToScreenCenter()
-
-    if closestPlayer then
-        local success, message = teleportToPlayer(closestPlayer, goFront)
-        if success then
-            button.Text = "传送成功!"
-            button.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
-        else
-            button.Text = message or "传送失败"
-            button.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-        end
-    else
-        button.Text = "未找到目标"
-        button.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-    end
-
-    task.delay(2, function()
-        button.Text = defaultText
-        button.BackgroundColor3 = defaultColor
-    end)
-end
-
--- 绑定按钮
-behindButton.MouseButton1Click:Connect(function()
-    doTeleport(behindButton, "传送到身后 [T]", Color3.fromRGB(0, 162, 255), false)
+behindBtn.MouseButton1Click:Connect(function()
+    local ok, _ = teleport(-5)
+    feedback(behindBtn, "⬅ 传送到身后", Color3.fromRGB(0, 130, 210), ok)
 end)
 
-frontButton.MouseButton1Click:Connect(function()
-    doTeleport(frontButton, "传送到身前 [Y]", Color3.fromRGB(255, 100, 0), true)
+frontBtn.MouseButton1Click:Connect(function()
+    local ok, _ = teleport(5)
+    feedback(frontBtn, "➡ 传送到身前", Color3.fromRGB(150, 60, 200), ok)
 end)
 
--- 键盘快捷键
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.T then
-        behindButton.MouseButton1Click:Fire()
-    elseif input.KeyCode == Enum.KeyCode.Y then
-        frontButton.MouseButton1Click:Fire()
-    end
+-- 快捷键：T=身后，Y=身前
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.T then behindBtn.MouseButton1Click:Fire() end
+    if input.KeyCode == Enum.KeyCode.Y then frontBtn.MouseButton1Click:Fire() end
 end)
 
-print("传送脚本已加载！T=身后 / Y=身前")
+print("传送脚本已加载 | T=身后 Y=身前")
