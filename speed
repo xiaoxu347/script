@@ -1,4 +1,4 @@
--- Roblox CFrame加速移动脚本（动画兼容版）
+-- Roblox CFrame加速移动脚本（技能动画强制移动版）
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -14,47 +14,7 @@ local MOVE_CONFIG = {
 
 local connection = nil
 local lastPosition = nil
-
--- ============================================================
--- 【新增】强制解除动画对RootPart的位置锁定
--- 通过将Animator的所有AnimationTrack的WeightTarget设置不变，
--- 但关键：禁用RootMotion并锁定HumanoidRootPart的网络所有权
--- ============================================================
-local function disableRootMotionLock(character)
-    local humanoid = character:FindFirstChild("Humanoid")
-    if not humanoid then return end
-
-    -- 【关键】关闭AutoRotate防止动画强制旋转覆盖CFrame
-    -- 如果你需要自动旋转可改为true，但建议关闭以免冲突
-    humanoid.AutoRotate = false
-
-    local animator = humanoid:FindFirstChild("Animator")
-    if not animator then return end
-
-    -- 遍历所有正在播放的动画轨道
-    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-        -- 【关键】将RootPart的权重归零，防止动画驱动根部位移
-        -- Priority越高的动画越容易覆盖CFrame，这里强制降权
-        if track.Priority == Enum.AnimationPriority.Action
-            or track.Priority == Enum.AnimationPriority.Action2
-            or track.Priority == Enum.AnimationPriority.Action3
-            or track.Priority == Enum.AnimationPriority.Action4 then
-            -- 动作类动画不强制干预（攻击、交互等保留）
-        end
-        -- 对Movement/Idle类动画，允许继续但不干预CFrame
-        -- Roblox默认动画不含RootMotion位移，主要是游戏自定义动画才有
-    end
-end
-
--- ============================================================
--- 【新增】每帧强制网络所有权，防止服务器覆盖CFrame
--- ============================================================
-local function forceNetworkOwnership(rootPart)
-    -- LocalScript环境下直接设置CFrame会被服务器纠正
-    -- 使用AssemblyLinearVelocity辅助"欺骗"物理引擎保持位置
-    -- （纯CFrame在某些服务器配置下会被重置，速度法更稳定）
-    rootPart.AssemblyLinearVelocity = Vector3.zero
-end
+local lastCFrame = nil
 
 local function createControlPanel()
     local screenGui = Instance.new("ScreenGui")
@@ -127,18 +87,52 @@ local function getCharacterParts()
     return humanoid, rootPart, character
 end
 
+-- ============================================================
+-- 【核心】强制移动函数
+-- 同时处理 WalkSpeed锁、Anchored锁、BodyMover锁
+-- ============================================================
+local function forceMove(rootPart, humanoid, character, targetCFrame)
+    -- 1. 解除Anchored锁
+    if rootPart.Anchored then
+        rootPart.Anchored = false
+    end
+
+    -- 2. 解除BodyPosition/BodyVelocity等约束干扰
+    --    这些约束会把角色钉在原地，直接删除
+    for _, v in ipairs(rootPart:GetChildren()) do
+        if v:IsA("BodyPosition")
+            or v:IsA("BodyVelocity")
+            or v:IsA("AlignPosition")
+            or v:IsA("VectorForce") then
+            v:Destroy()
+        end
+    end
+
+    -- 3. 如果WalkSpeed被锁为0，临时恢复
+    --    （只在加速时恢复，不影响技能本身逻辑）
+    if humanoid.WalkSpeed == 0 then
+        humanoid.WalkSpeed = 16
+    end
+
+    -- 4. 用RenderStepped级别的CFrame强制写入
+    --    直接设置比PivotTo更底层，在Heartbeat末尾执行能覆盖游戏脚本
+    rootPart.CFrame = targetCFrame
+
+    -- 5. 清零水平速度防止物理回弹
+    rootPart.AssemblyLinearVelocity = Vector3.new(
+        0,
+        rootPart.AssemblyLinearVelocity.Y,
+        0
+    )
+end
+
 local function stopCFrameSpeed()
     if connection then
         connection:Disconnect()
         connection = nil
     end
     lastPosition = nil
-
-    -- 【新增】恢复AutoRotate
-    local humanoid, rootPart, character = getCharacterParts()
-    if humanoid then
-        humanoid.AutoRotate = true
-    end
+    lastCFrame = nil
 end
 
 local function startCFrameSpeed()
@@ -147,66 +141,58 @@ local function startCFrameSpeed()
     local humanoid, rootPart, character = getCharacterParts()
     if not humanoid or not rootPart then return end
 
-    -- 【新增】初始化时处理动画锁
-    disableRootMotionLock(character)
-
     lastPosition = rootPart.CFrame.Position
+    lastCFrame = rootPart.CFrame
 
-    connection = RunService.Heartbeat:Connect(function(dt)
+    -- ============================================================
+    -- 【关键】使用 RenderStepped 而非 Heartbeat
+    -- RenderStepped 在每帧渲染前最后执行，优先级高于游戏的Heartbeat
+    -- 能覆盖游戏脚本在Heartbeat里写的CFrame
+    -- ============================================================
+    connection = RunService.RenderStepped:Connect(function(dt)
         local humanoid, rootPart, character = getCharacterParts()
         if not humanoid or not rootPart then
             stopCFrameSpeed()
             return
         end
 
-        -- ============================================================
-        -- 【新增】动画状态检测：即使处于动画状态也强制允许移动
-        -- HumanoidStateType 中 Seated/Dead 状态跳过处理
-        -- ============================================================
         local state = humanoid:GetState()
         if state == Enum.HumanoidStateType.Dead then return end
-
-        -- 【新增】如果角色被seated/冻结，临时解除
         if state == Enum.HumanoidStateType.Seated then
-            -- 坐下状态不强制移动，尊重游戏逻辑
             lastPosition = rootPart.CFrame.Position
+            lastCFrame = rootPart.CFrame
             return
         end
 
         local currentPosition = rootPart.CFrame.Position
-        local moveDirection = currentPosition - lastPosition
 
-        if moveDirection.Magnitude > 0.01 then
-            local horizontalMove = Vector3.new(moveDirection.X, 0, moveDirection.Z)
+        -- ============================================================
+        -- 【关键改动】判断移动方向的来源改为 MoveDirection
+        -- MoveDirection 是玩家摇杆/键盘的真实输入向量
+        -- 不再依赖"位置差"（因为动画锁住后位置差永远为0）
+        -- ============================================================
+        local moveDir = humanoid.MoveDirection
 
-            if horizontalMove.Magnitude > 0.01 then
-                local acceleratedMove = horizontalMove * MOVE_CONFIG.speed
-                local newPosition = lastPosition + acceleratedMove
+        if moveDir.Magnitude > 0.01 then
+            -- 根据摇杆输入方向 + 速度 + dt 计算本帧应移动的距离
+            -- 基础速度用WalkSpeed，再乘以倍数，再乘以dt保持帧率无关
+            local baseSpeed = math.max(humanoid.WalkSpeed, 16) -- 防止WalkSpeed=0时不动
+            local frameMove = moveDir * baseSpeed * MOVE_CONFIG.speed * dt
 
-                -- ============================================================
-                -- 【修改】使用PivotTo替代直接赋值CFrame
-                -- PivotTo对动画的兼容性更好，不会重置Motor6D状态
-                -- ============================================================
-                local targetCFrame = CFrame.new(
-                    Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z)
-                ) * (rootPart.CFrame - rootPart.CFrame.Position)
-                -- 保留旋转分量：提取旋转矩阵部分
+            local newPosition = Vector3.new(
+                currentPosition.X + frameMove.X,
+                currentPosition.Y,
+                currentPosition.Z + frameMove.Z
+            )
 
-                -- 【关键修改】用character:PivotTo移动整个模型
-                -- 避免单独移动RootPart导致肢体错位或动画中断
-                local charPivot = character:GetPivot()
-                local offset = Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z)
-                    - charPivot.Position
+            -- 保留旋转，只替换位置
+            local rotationCFrame = rootPart.CFrame - rootPart.CFrame.Position
+            local newCFrame = CFrame.new(newPosition) * rotationCFrame
 
-                character:PivotTo(charPivot + offset)
+            -- 强制写入，处理各种锁
+            forceMove(rootPart, humanoid, character, newCFrame)
 
-                -- 【新增】移动后立即清零速度防止物理引擎把角色弹回去
-                rootPart.AssemblyLinearVelocity = Vector3.new(
-                    rootPart.AssemblyLinearVelocity.X * 0.3,
-                    rootPart.AssemblyLinearVelocity.Y,  -- 保留Y轴速度（跳跃/重力）
-                    rootPart.AssemblyLinearVelocity.Z * 0.3
-                )
-            end
+            lastCFrame = newCFrame
         end
 
         lastPosition = rootPart.CFrame.Position
@@ -238,31 +224,18 @@ local function adjustSpeed(change, elements)
 end
 
 local function setupCharacterListener(elements)
-    LocalPlayer.CharacterAdded:Connect(function(character)
+    LocalPlayer.CharacterAdded:Connect(function()
         task.wait(1)
-
-        -- 【新增】角色重生后重新处理动画锁
         if MOVE_CONFIG.isSpeedEnabled then
             stopCFrameSpeed()
             task.wait(0.1)
             startCFrameSpeed()
         end
-
-        -- 【新增】监听新动画播放事件，动态处理动画锁
-        local humanoid = character:WaitForChild("Humanoid")
-        local animator = humanoid:WaitForChild("Animator")
-
-        animator.AnimationPlayed:Connect(function(track)
-            -- 每次新动画开始时，确保AutoRotate保持我们设置的状态
-            if MOVE_CONFIG.isSpeedEnabled then
-                humanoid.AutoRotate = false
-            end
-        end)
     end)
 end
 
 local function main()
-    print("CFrame加速移动脚本（动画兼容版）已启动!")
+    print("CFrame加速移动脚本（技能动画强制移动版）已启动!")
 
     local elements = createControlPanel()
 
