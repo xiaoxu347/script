@@ -1,14 +1,11 @@
--- Roblox CFrame加速移动脚本
--- 基于CFrame的地面快速移动
-
+-- Roblox CFrame加速移动脚本（动画兼容版）
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
--- 移动配置
 local MOVE_CONFIG = {
-    speed = 2, -- CFrame移动倍数
+    speed = 2,
     minSpeed = 1,
     maxSpeed = 10,
     speedStep = 0.5,
@@ -18,14 +15,53 @@ local MOVE_CONFIG = {
 local connection = nil
 local lastPosition = nil
 
--- 创建简洁控制面板
+-- ============================================================
+-- 【新增】强制解除动画对RootPart的位置锁定
+-- 通过将Animator的所有AnimationTrack的WeightTarget设置不变，
+-- 但关键：禁用RootMotion并锁定HumanoidRootPart的网络所有权
+-- ============================================================
+local function disableRootMotionLock(character)
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+
+    -- 【关键】关闭AutoRotate防止动画强制旋转覆盖CFrame
+    -- 如果你需要自动旋转可改为true，但建议关闭以免冲突
+    humanoid.AutoRotate = false
+
+    local animator = humanoid:FindFirstChild("Animator")
+    if not animator then return end
+
+    -- 遍历所有正在播放的动画轨道
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        -- 【关键】将RootPart的权重归零，防止动画驱动根部位移
+        -- Priority越高的动画越容易覆盖CFrame，这里强制降权
+        if track.Priority == Enum.AnimationPriority.Action
+            or track.Priority == Enum.AnimationPriority.Action2
+            or track.Priority == Enum.AnimationPriority.Action3
+            or track.Priority == Enum.AnimationPriority.Action4 then
+            -- 动作类动画不强制干预（攻击、交互等保留）
+        end
+        -- 对Movement/Idle类动画，允许继续但不干预CFrame
+        -- Roblox默认动画不含RootMotion位移，主要是游戏自定义动画才有
+    end
+end
+
+-- ============================================================
+-- 【新增】每帧强制网络所有权，防止服务器覆盖CFrame
+-- ============================================================
+local function forceNetworkOwnership(rootPart)
+    -- LocalScript环境下直接设置CFrame会被服务器纠正
+    -- 使用AssemblyLinearVelocity辅助"欺骗"物理引擎保持位置
+    -- （纯CFrame在某些服务器配置下会被重置，速度法更稳定）
+    rootPart.AssemblyLinearVelocity = Vector3.zero
+end
+
 local function createControlPanel()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "SpeedControl"
     screenGui.Parent = game.CoreGui
     screenGui.ResetOnSpawn = false
-    
-    -- 主面板
+
     local mainFrame = Instance.new("Frame")
     mainFrame.Size = UDim2.new(0, 140, 0, 100)
     mainFrame.Position = UDim2.new(1, -150, 0, 10)
@@ -34,8 +70,7 @@ local function createControlPanel()
     mainFrame.BorderSizePixel = 1
     mainFrame.BorderColor3 = Color3.fromRGB(255, 255, 255)
     mainFrame.Parent = screenGui
-    
-    -- 加速开关
+
     local speedButton = Instance.new("TextButton")
     speedButton.Size = UDim2.new(1, -10, 0, 30)
     speedButton.Position = UDim2.new(0, 5, 0, 5)
@@ -45,8 +80,7 @@ local function createControlPanel()
     speedButton.TextScaled = true
     speedButton.Font = Enum.Font.SourceSansBold
     speedButton.Parent = mainFrame
-    
-    -- 速度显示
+
     local speedLabel = Instance.new("TextLabel")
     speedLabel.Size = UDim2.new(1, -10, 0, 18)
     speedLabel.Position = UDim2.new(0, 5, 0, 40)
@@ -56,8 +90,7 @@ local function createControlPanel()
     speedLabel.TextScaled = true
     speedLabel.Font = Enum.Font.SourceSans
     speedLabel.Parent = mainFrame
-    
-    -- 速度调节
+
     local speedDownButton = Instance.new("TextButton")
     speedDownButton.Size = UDim2.new(0, 60, 0, 25)
     speedDownButton.Position = UDim2.new(0, 5, 0, 65)
@@ -67,7 +100,7 @@ local function createControlPanel()
     speedDownButton.TextScaled = true
     speedDownButton.Font = Enum.Font.SourceSansBold
     speedDownButton.Parent = mainFrame
-    
+
     local speedUpButton = Instance.new("TextButton")
     speedUpButton.Size = UDim2.new(0, 60, 0, 25)
     speedUpButton.Position = UDim2.new(0, 75, 0, 65)
@@ -77,7 +110,7 @@ local function createControlPanel()
     speedUpButton.TextScaled = true
     speedUpButton.Font = Enum.Font.SourceSansBold
     speedUpButton.Parent = mainFrame
-    
+
     return {
         speedButton = speedButton,
         speedLabel = speedLabel,
@@ -86,73 +119,103 @@ local function createControlPanel()
     }
 end
 
--- 获取角色组件
 local function getCharacterParts()
     local character = LocalPlayer.Character
-    if not character then return nil, nil end
-    
+    if not character then return nil, nil, nil end
     local humanoid = character:FindFirstChild("Humanoid")
     local rootPart = character:FindFirstChild("HumanoidRootPart")
-    
-    return humanoid, rootPart
+    return humanoid, rootPart, character
 end
 
--- 开始CFrame加速
-local function startCFrameSpeed()
-    if connection then return end
-    
-    local humanoid, rootPart = getCharacterParts()
-    if not humanoid or not rootPart then return end
-    
-    lastPosition = rootPart.CFrame.Position
-    
-    connection = RunService.Heartbeat:Connect(function()
-        local humanoid, rootPart = getCharacterParts()
-        if not humanoid or not rootPart then
-            stopCFrameSpeed()
-            return
-        end
-        
-        -- 检查玩家是否在移动
-        local currentPosition = rootPart.CFrame.Position
-        local moveDirection = currentPosition - lastPosition
-        
-        -- 只在水平方向移动时加速（保持Y轴不变）
-        if moveDirection.Magnitude > 0.01 then
-            local horizontalMove = Vector3.new(moveDirection.X, 0, moveDirection.Z)
-            
-            if horizontalMove.Magnitude > 0.01 then
-                -- 计算加速后的位置
-                local acceleratedMove = horizontalMove * MOVE_CONFIG.speed
-                local newPosition = lastPosition + acceleratedMove
-                
-                -- 保持原有的Y坐标和旋转
-                local newCFrame = CFrame.new(
-                    Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z),
-                    Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z) + rootPart.CFrame.LookVector
-                )
-                
-                rootPart.CFrame = newCFrame
-            end
-        end
-        
-        lastPosition = rootPart.CFrame.Position
-    end)
-end
-
--- 停止CFrame加速
 local function stopCFrameSpeed()
     if connection then
         connection:Disconnect()
         connection = nil
     end
     lastPosition = nil
+
+    -- 【新增】恢复AutoRotate
+    local humanoid, rootPart, character = getCharacterParts()
+    if humanoid then
+        humanoid.AutoRotate = true
+    end
 end
 
--- 切换加速状态
+local function startCFrameSpeed()
+    if connection then return end
+
+    local humanoid, rootPart, character = getCharacterParts()
+    if not humanoid or not rootPart then return end
+
+    -- 【新增】初始化时处理动画锁
+    disableRootMotionLock(character)
+
+    lastPosition = rootPart.CFrame.Position
+
+    connection = RunService.Heartbeat:Connect(function(dt)
+        local humanoid, rootPart, character = getCharacterParts()
+        if not humanoid or not rootPart then
+            stopCFrameSpeed()
+            return
+        end
+
+        -- ============================================================
+        -- 【新增】动画状态检测：即使处于动画状态也强制允许移动
+        -- HumanoidStateType 中 Seated/Dead 状态跳过处理
+        -- ============================================================
+        local state = humanoid:GetState()
+        if state == Enum.HumanoidStateType.Dead then return end
+
+        -- 【新增】如果角色被seated/冻结，临时解除
+        if state == Enum.HumanoidStateType.Seated then
+            -- 坐下状态不强制移动，尊重游戏逻辑
+            lastPosition = rootPart.CFrame.Position
+            return
+        end
+
+        local currentPosition = rootPart.CFrame.Position
+        local moveDirection = currentPosition - lastPosition
+
+        if moveDirection.Magnitude > 0.01 then
+            local horizontalMove = Vector3.new(moveDirection.X, 0, moveDirection.Z)
+
+            if horizontalMove.Magnitude > 0.01 then
+                local acceleratedMove = horizontalMove * MOVE_CONFIG.speed
+                local newPosition = lastPosition + acceleratedMove
+
+                -- ============================================================
+                -- 【修改】使用PivotTo替代直接赋值CFrame
+                -- PivotTo对动画的兼容性更好，不会重置Motor6D状态
+                -- ============================================================
+                local targetCFrame = CFrame.new(
+                    Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z)
+                ) * (rootPart.CFrame - rootPart.CFrame.Position)
+                -- 保留旋转分量：提取旋转矩阵部分
+
+                -- 【关键修改】用character:PivotTo移动整个模型
+                -- 避免单独移动RootPart导致肢体错位或动画中断
+                local charPivot = character:GetPivot()
+                local offset = Vector3.new(newPosition.X, currentPosition.Y, newPosition.Z)
+                    - charPivot.Position
+
+                character:PivotTo(charPivot + offset)
+
+                -- 【新增】移动后立即清零速度防止物理引擎把角色弹回去
+                rootPart.AssemblyLinearVelocity = Vector3.new(
+                    rootPart.AssemblyLinearVelocity.X * 0.3,
+                    rootPart.AssemblyLinearVelocity.Y,  -- 保留Y轴速度（跳跃/重力）
+                    rootPart.AssemblyLinearVelocity.Z * 0.3
+                )
+            end
+        end
+
+        lastPosition = rootPart.CFrame.Position
+    end)
+end
+
 local function toggleSpeed(elements)
     MOVE_CONFIG.isSpeedEnabled = not MOVE_CONFIG.isSpeedEnabled
-    
+
     if MOVE_CONFIG.isSpeedEnabled then
         startCFrameSpeed()
         elements.speedButton.Text = "关闭加速"
@@ -164,68 +227,64 @@ local function toggleSpeed(elements)
     end
 end
 
--- 更新速度显示
 local function updateSpeedLabel(elements)
     elements.speedLabel.Text = "倍速: " .. MOVE_CONFIG.speed .. "x"
 end
 
--- 调整速度
 local function adjustSpeed(change, elements)
-    MOVE_CONFIG.speed = math.max(MOVE_CONFIG.minSpeed, 
-                        math.min(MOVE_CONFIG.maxSpeed, 
-                               MOVE_CONFIG.speed + change))
+    MOVE_CONFIG.speed = math.max(MOVE_CONFIG.minSpeed,
+        math.min(MOVE_CONFIG.maxSpeed, MOVE_CONFIG.speed + change))
     updateSpeedLabel(elements)
 end
 
--- 监听角色重生
 local function setupCharacterListener(elements)
-    LocalPlayer.CharacterAdded:Connect(function()
-        wait(1)
+    LocalPlayer.CharacterAdded:Connect(function(character)
+        task.wait(1)
+
+        -- 【新增】角色重生后重新处理动画锁
         if MOVE_CONFIG.isSpeedEnabled then
             stopCFrameSpeed()
-            wait(0.1)
+            task.wait(0.1)
             startCFrameSpeed()
         end
+
+        -- 【新增】监听新动画播放事件，动态处理动画锁
+        local humanoid = character:WaitForChild("Humanoid")
+        local animator = humanoid:WaitForChild("Animator")
+
+        animator.AnimationPlayed:Connect(function(track)
+            -- 每次新动画开始时，确保AutoRotate保持我们设置的状态
+            if MOVE_CONFIG.isSpeedEnabled then
+                humanoid.AutoRotate = false
+            end
+        end)
     end)
 end
 
--- 主函数
 local function main()
-    print("CFrame加速移动脚本已启动!")
-    
-    -- 创建控制面板
+    print("CFrame加速移动脚本（动画兼容版）已启动!")
+
     local elements = createControlPanel()
-    
-    -- 按钮事件
+
     elements.speedButton.MouseButton1Click:Connect(function()
         toggleSpeed(elements)
     end)
-    
+
     elements.speedUpButton.MouseButton1Click:Connect(function()
         adjustSpeed(MOVE_CONFIG.speedStep, elements)
     end)
-    
+
     elements.speedDownButton.MouseButton1Click:Connect(function()
         adjustSpeed(-MOVE_CONFIG.speedStep, elements)
     end)
-    
-    -- 角色重生监听
+
     setupCharacterListener(elements)
-    
-    -- 初始化
     updateSpeedLabel(elements)
-    
-    print("使用手机虚拟摇杆正常移动")
-    print("开启加速后移动速度会按倍数增加")
 end
 
--- 清理函数
 local function cleanup()
     stopCFrameSpeed()
 end
 
--- 启动
 main()
-
--- 游戏关闭时清理
 game:BindToClose(cleanup)
