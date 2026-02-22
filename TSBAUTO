@@ -1,0 +1,484 @@
+-- ╔══════════════════════════════════════════════════════╗
+-- ║           AutoBattle Script  v2.0                   ║
+-- ║           优化版本 · 含GUI控制面板                     ║
+-- ╚══════════════════════════════════════════════════════╝
+
+local Players        = game:GetService("Players")
+local RunService     = game:GetService("RunService")
+local Workspace      = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local TweenService   = game:GetService("TweenService")
+
+-- ══════════════════════════════════════
+--  配置区（按需修改）
+-- ══════════════════════════════════════
+local CONFIG = {
+    targetPlayerName     = "yaoshen21",   -- 目标玩家名
+    skillQueue           = {               -- 技能释放顺序
+        "Flowing Water",
+        "Lethal Whirlwind Stream",
+        "Hunter's Grasp",
+        "Prey's Peril",
+    },
+    skillCooldown        = 3,              -- 技能冷却(秒)
+    attackRange          = 7,              -- 攻击触发距离(米)
+    dashRange            = 35,             -- 冲刺触发距离(米)
+    minFollowDistance    = 3,              -- 最小跟随距离(米)
+    attackInterval       = 0.3,            -- 普攻按下时长(秒)
+    attackGap            = 0.5,            -- 普攻释放后间隔(秒)
+    dashDebounce         = 0.5,            -- 冲刺最小间隔(秒)
+}
+
+-- ══════════════════════════════════════
+--  本地变量
+-- ══════════════════════════════════════
+local localPlayer     = Players.LocalPlayer
+local character       = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+local humanoid        = character:WaitForChild("Humanoid")
+local camera          = Workspace.CurrentCamera
+
+local trackConn       = nil   -- RenderStepped 连接
+local isAttacking     = false
+local lastSkillTime   = 0
+local lastDashTime    = 0
+local currentSkillIdx = 1
+local humanoidDiedConn = nil
+local targetDiedConn  = nil
+local targetRespawnConn = nil
+
+-- GUI 状态
+local guiEnabled      = true
+local trackEnabled    = true
+
+-- ══════════════════════════════════════
+--  工具函数
+-- ══════════════════════════════════════
+local function stopTracking()
+    if trackConn then
+        trackConn:Disconnect()
+        trackConn = nil
+    end
+end
+
+local function stopAttacking()
+    isAttacking = false
+end
+
+-- ══════════════════════════════════════
+--  战斗动作
+-- ══════════════════════════════════════
+local function fireServer(args)
+    local comm = character:FindFirstChild("Communicate")
+    if comm then
+        comm:FireServer(unpack(args))
+    end
+end
+
+local function performDash()
+    fireServer({ { Dash = Enum.KeyCode.W, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
+end
+
+local function performNormalAttack()
+    fireServer({ { Goal = "LeftClick", Mobile = true } })
+end
+
+local function releaseNormalAttack()
+    fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+end
+
+local function performSkill(skillName)
+    local now = tick()
+    if (now - lastSkillTime) < CONFIG.skillCooldown then return end
+    local tool = localPlayer.Backpack:FindFirstChild(skillName)
+    if tool then
+        fireServer({ { Tool = tool, Goal = "Console Move" } })
+        lastSkillTime = now
+    else
+        warn("[AutoBattle] 技能未找到: " .. skillName)
+    end
+end
+
+local function attackLoop()
+    if isAttacking then return end
+    isAttacking = true
+    task.spawn(function()
+        while isAttacking do
+            performNormalAttack()
+            task.wait(CONFIG.attackInterval)
+            releaseNormalAttack()
+
+            local skillName = CONFIG.skillQueue[currentSkillIdx]
+            performSkill(skillName)
+            currentSkillIdx = currentSkillIdx % #CONFIG.skillQueue + 1
+
+            task.wait(CONFIG.attackGap)
+        end
+    end)
+end
+
+-- ══════════════════════════════════════
+--  追踪主逻辑
+-- ══════════════════════════════════════
+local statusText = nil  -- 供GUI更新
+
+local function trackAndAim()
+    stopTracking()  -- 防止重复连接
+
+    local targetPlayer = Players:FindFirstChild(CONFIG.targetPlayerName)
+    if not targetPlayer then
+        warn("[AutoBattle] 未找到目标: " .. CONFIG.targetPlayerName)
+        if statusText then statusText.Text = "状态: 目标未找到" end
+        return
+    end
+
+    local targetCharacter = targetPlayer.Character or targetPlayer.CharacterAdded:Wait()
+    local targetHumanoid  = targetCharacter:WaitForChild("Humanoid")
+
+    -- 清理旧连接
+    if targetDiedConn then targetDiedConn:Disconnect() end
+    if targetRespawnConn then targetRespawnConn:Disconnect() end
+
+    targetDiedConn = targetHumanoid.Died:Connect(function()
+        stopTracking()
+        stopAttacking()
+        if statusText then statusText.Text = "状态: 目标已死亡" end
+    end)
+
+    targetRespawnConn = targetPlayer.CharacterAdded:Connect(function(newChar)
+        targetCharacter = newChar
+        task.wait(0.5)
+        trackAndAim()  -- 目标重生后重新追踪
+    end)
+
+    trackConn = RunService.RenderStepped:Connect(function()
+        if not trackEnabled then return end
+
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+        if not rootPart or not targetRoot then return end
+
+        local myPos     = rootPart.Position
+        local targetPos = targetRoot.Position
+        local distance  = (targetPos - myPos).Magnitude
+        local direction = (targetPos - myPos).Unit
+
+        -- 移动
+        if distance > CONFIG.minFollowDistance then
+            humanoid:MoveTo(targetPos - direction * CONFIG.minFollowDistance)
+        end
+
+        -- 镜头对准
+        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetPos)
+
+        -- 冲刺（加debounce）
+        local now = tick()
+        if distance <= CONFIG.dashRange and (now - lastDashTime) >= CONFIG.dashDebounce then
+            performDash()
+            lastDashTime = now
+        end
+
+        -- 攻击
+        if distance <= CONFIG.attackRange then
+            attackLoop()
+        else
+            stopAttacking()
+        end
+
+        -- 更新GUI状态
+        if statusText then
+            statusText.Text = string.format(
+                "状态: 追踪中\n目标: %s\n距离: %.1f m",
+                CONFIG.targetPlayerName, distance
+            )
+        end
+    end)
+end
+
+-- ══════════════════════════════════════
+--  死亡/重生处理
+-- ══════════════════════════════════════
+local function onLocalDeath()
+    stopTracking()
+    stopAttacking()
+    if humanoidDiedConn then humanoidDiedConn:Disconnect() end
+    if statusText then statusText.Text = "状态: 重生中..." end
+
+    character = localPlayer.CharacterAdded:Wait()
+    humanoid  = character:WaitForChild("Humanoid")
+    humanoidDiedConn = humanoid.Died:Connect(onLocalDeath)
+
+    task.wait(1)  -- 等角色完全加载
+    trackAndAim()
+end
+
+humanoidDiedConn = humanoid.Died:Connect(onLocalDeath)
+
+-- ══════════════════════════════════════
+--  GUI 构建
+-- ══════════════════════════════════════
+local function createGUI()
+    -- 防重复创建
+    local existing = localPlayer.PlayerGui:FindFirstChild("AutoBattleGUI")
+    if existing then existing:Destroy() end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AutoBattleGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = localPlayer.PlayerGui
+
+    -- ── 主面板 ──
+    local panel = Instance.new("Frame")
+    panel.Name = "Panel"
+    panel.Size = UDim2.new(0, 240, 0, 280)
+    panel.Position = UDim2.new(0, 20, 0.5, -140)
+    panel.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    panel.BorderSizePixel = 0
+    panel.Active = true
+    panel.Draggable = true
+    panel.Parent = screenGui
+
+    -- 圆角
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = panel
+
+    -- 描边
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(80, 160, 255)
+    stroke.Thickness = 1.5
+    stroke.Parent = panel
+
+    -- ── 标题栏 ──
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 36)
+    titleBar.BackgroundColor3 = Color3.fromRGB(25, 80, 180)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = panel
+
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 10)
+    titleCorner.Parent = titleBar
+
+    -- 修复标题栏底部圆角（用覆盖块）
+    local titleFix = Instance.new("Frame")
+    titleFix.Size = UDim2.new(1, 0, 0, 10)
+    titleFix.Position = UDim2.new(0, 0, 1, -10)
+    titleFix.BackgroundColor3 = Color3.fromRGB(25, 80, 180)
+    titleFix.BorderSizePixel = 0
+    titleFix.Parent = titleBar
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -10, 1, 0)
+    titleLabel.Position = UDim2.new(0, 10, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "⚔  AutoBattle v2.0"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.TextSize = 14
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+
+    -- 收起按钮
+    local collapseBtn = Instance.new("TextButton")
+    collapseBtn.Size = UDim2.new(0, 28, 0, 28)
+    collapseBtn.Position = UDim2.new(1, -32, 0, 4)
+    collapseBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    collapseBtn.Text = "─"
+    collapseBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    collapseBtn.TextSize = 14
+    collapseBtn.Font = Enum.Font.GothamBold
+    collapseBtn.BorderSizePixel = 0
+    collapseBtn.Parent = titleBar
+
+    local collapseCorner = Instance.new("UICorner")
+    collapseCorner.CornerRadius = UDim.new(0, 6)
+    collapseCorner.Parent = collapseBtn
+
+    -- ── 内容区 ──
+    local content = Instance.new("Frame")
+    content.Name = "Content"
+    content.Size = UDim2.new(1, 0, 1, -36)
+    content.Position = UDim2.new(0, 0, 0, 36)
+    content.BackgroundTransparency = 1
+    content.Parent = panel
+
+    local contentLayout = Instance.new("UIListLayout")
+    contentLayout.FillDirection = Enum.FillDirection.Vertical
+    contentLayout.Padding = UDim.new(0, 8)
+    contentLayout.Parent = content
+
+    local contentPadding = Instance.new("UIPadding")
+    contentPadding.PaddingTop = UDim.new(0, 10)
+    contentPadding.PaddingLeft = UDim.new(0, 12)
+    contentPadding.PaddingRight = UDim.new(0, 12)
+    contentPadding.Parent = content
+
+    -- ── 辅助：创建标签 ──
+    local function makeLabel(text, size)
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, 0, 0, size or 16)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextColor3 = Color3.fromRGB(160, 180, 220)
+        lbl.TextSize = 12
+        lbl.Font = Enum.Font.Gotham
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Parent = content
+        return lbl
+    end
+
+    -- ── 辅助：创建开关按钮 ──
+    local function makeToggle(labelText, defaultOn, callback)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, 0, 0, 30)
+        row.BackgroundTransparency = 1
+        row.Parent = content
+
+        local rowLabel = Instance.new("TextLabel")
+        rowLabel.Size = UDim2.new(0.65, 0, 1, 0)
+        rowLabel.BackgroundTransparency = 1
+        rowLabel.Text = labelText
+        rowLabel.TextColor3 = Color3.fromRGB(210, 215, 230)
+        rowLabel.TextSize = 13
+        rowLabel.Font = Enum.Font.Gotham
+        rowLabel.TextXAlignment = Enum.TextXAlignment.Left
+        rowLabel.Parent = row
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 52, 0, 24)
+        btn.Position = UDim2.new(1, -52, 0.5, -12)
+        btn.BorderSizePixel = 0
+        btn.Text = ""
+        btn.Parent = row
+
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(1, 0)
+        btnCorner.Parent = btn
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 18, 0, 18)
+        knob.Position = defaultOn and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+        knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        knob.BorderSizePixel = 0
+        knob.Parent = btn
+
+        local knobCorner = Instance.new("UICorner")
+        knobCorner.CornerRadius = UDim.new(1, 0)
+        knobCorner.Parent = knob
+
+        local isOn = defaultOn
+        local function updateVisual()
+            local onColor  = Color3.fromRGB(60, 180, 100)
+            local offColor = Color3.fromRGB(70, 70, 90)
+            btn.BackgroundColor3 = isOn and onColor or offColor
+            local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad)
+            TweenService:Create(knob, tweenInfo, {
+                Position = isOn
+                    and UDim2.new(1, -21, 0.5, -9)
+                    or  UDim2.new(0, 3,   0.5, -9)
+            }):Play()
+        end
+        updateVisual()
+
+        btn.MouseButton1Click:Connect(function()
+            isOn = not isOn
+            updateVisual()
+            callback(isOn)
+        end)
+
+        return btn
+    end
+
+    -- ── 状态显示 ──
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0, 52)
+    statusLabel.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+    statusLabel.TextColor3 = Color3.fromRGB(120, 220, 160)
+    statusLabel.TextSize = 12
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.Text = "状态: 启动中..."
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.TextWrapped = true
+    statusLabel.BorderSizePixel = 0
+    statusLabel.Parent = content
+
+    local statusCorner = Instance.new("UICorner")
+    statusCorner.CornerRadius = UDim.new(0, 6)
+    statusCorner.Parent = statusLabel
+
+    local statusPadding = Instance.new("UIPadding")
+    statusPadding.PaddingLeft = UDim.new(0, 8)
+    statusPadding.PaddingTop = UDim.new(0, 4)
+    statusPadding.Parent = statusLabel
+
+    statusText = statusLabel  -- 绑定全局变量
+
+    -- ── 分割线 ──
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(1, 0, 0, 1)
+    divider.BackgroundColor3 = Color3.fromRGB(50, 55, 80)
+    divider.BorderSizePixel = 0
+    divider.Parent = content
+
+    -- ── 开关：追踪 ──
+    makeToggle("🎯  追踪跟随", true, function(on)
+        trackEnabled = on
+        if not on then
+            stopTracking()
+            stopAttacking()
+            statusLabel.Text = "状态: 追踪已暂停"
+        else
+            trackAndAim()
+        end
+    end)
+
+    -- ── 开关：自动攻击 ──
+    makeToggle("⚔  自动攻击", true, function(on)
+        if not on then stopAttacking() end
+    end)
+
+    -- ── 技能冷却显示 ──
+    local cdLabel = makeLabel("技能冷却: " .. CONFIG.skillCooldown .. "s", 14)
+
+    -- 实时更新冷却显示
+    RunService.Heartbeat:Connect(function()
+        local remain = CONFIG.skillCooldown - (tick() - lastSkillTime)
+        if remain > 0 then
+            cdLabel.Text = string.format("技能冷却: %.1fs", remain)
+            cdLabel.TextColor3 = Color3.fromRGB(255, 160, 80)
+        else
+            cdLabel.Text = "技能冷却: 就绪 ✔"
+            cdLabel.TextColor3 = Color3.fromRGB(100, 220, 140)
+        end
+    end)
+
+    -- ── 收起/展开逻辑 ──
+    local collapsed = false
+    collapseBtn.MouseButton1Click:Connect(function()
+        collapsed = not collapsed
+        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad)
+        TweenService:Create(panel, tweenInfo, {
+            Size = collapsed
+                and UDim2.new(0, 240, 0, 36)
+                or  UDim2.new(0, 240, 0, 280)
+        }):Play()
+        content.Visible = not collapsed
+        collapseBtn.Text = collapsed and "□" or "─"
+    end)
+end
+
+-- ══════════════════════════════════════
+--  启动
+-- ══════════════════════════════════════
+createGUI()
+
+if character then
+    trackAndAim()
+else
+    localPlayer.CharacterAdded:Connect(function(c)
+        character = c
+        humanoid  = c:WaitForChild("Humanoid")
+        trackAndAim()
+    end)
+end
