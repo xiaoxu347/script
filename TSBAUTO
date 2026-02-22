@@ -19,7 +19,7 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 -- ══════════════════════════════════════
 local CFG = {
     masterName        = "yaoshen21",    -- 主人玩家名（平时跟随，不攻击）
-    guardRadius       = 150,             -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
+    guardRadius       = 150,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
     masterFollowDist  = 4,              -- 跟随主人时保持的距离(米)
     masterDashRange   = 35,             -- 跟随时冲刺触发距离(米)
     dashDebounce      = 0.5,            -- 冲刺间隔(秒)
@@ -28,7 +28,7 @@ local CFG = {
     skillQueue        = { "Flowing Water", "Lethal Whirlwind Stream", "Hunter's Grasp" },
     preySkillName     = "Prey's Peril",
     preyAnimId        = "15290930205",  -- 触发反制的敌方动画ID
-    teleportAnimId    = "10470389827",   -- 触发瞬移的自身动画ID
+    teleportAnimId    = "10470389827",  -- 触发瞬移的自身动画ID
     teleportDist      = 4,              -- 瞬移到敌方背后距离(米)
     preyCD            = 1.5,            -- 反制技能冷却(秒)
     skillCD           = 3,              -- 普通技能冷却(秒)
@@ -409,10 +409,6 @@ guardAndCombat = function()
                 humanoid:Move(dir, false)
             else
                 humanoid:Move(Vector3.zero, false)
-            end
-
-            if dist <= CFG.masterDashRange and now - lastDashTime >= CFG.dashDebounce then
-                performDash(); lastDashTime = now
             end
 
             setStatus(string.format(
