@@ -1,7 +1,3 @@
-loadstring(game:HttpGet("https://api.jnkie.com/api/v1/luascripts/public/5659752fa0f7c10df56777eafd8f4813f15d3cde1b206f7e10f6b87af4fa9dfd/download"))()
-
-loadstring(game:HttpGet("https://raw.githubusercontent.com/alanbeikers9/scripts-ofuzado/refs/heads/main/obfuscated_code.lua"))()
-
 -- ╔══════════════════════════════════════════════════════╗
 -- ║           AutoBattle Script  v2.3                   ║
 -- ║  自身动画瞬移 · 动画反制 · 侧闪 · 布娃娃 · GUI         ║
@@ -179,12 +175,12 @@ local function teleportBehindTarget()
     local myRoot     = character:FindFirstChild("HumanoidRootPart")
     if not targetRoot or not myRoot then return end
 
-    -- 站在目标背后（目标LookVector方向 + 距离），面朝目标
+    -- 站在目标背后（目标LookVector反方向），面朝目标
     local behind = targetRoot.CFrame.LookVector * CONFIG.teleportBehindDist
     local newPos  = Vector3.new(
-        targetRoot.Position.X + behind.X,
+        targetRoot.Position.X - behind.X,
         targetRoot.Position.Y,
-        targetRoot.Position.Z + behind.Z
+        targetRoot.Position.Z - behind.Z
     )
     myRoot.CFrame = CFrame.lookAt(newPos, targetRoot.Position)
 end
