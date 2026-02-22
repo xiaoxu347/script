@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════╗
--- ║           AutoBattle Script  v2.1                   ║
--- ║      布娃娃检测 · 真实跑步移动 · GUI控制面板            ║
+-- ║           AutoBattle Script  v2.3                   ║
+-- ║  自身动画瞬移 · 动画反制 · 侧闪 · 布娃娃 · GUI         ║
 -- ╚══════════════════════════════════════════════════════╝
 
 local Players        = game:GetService("Players")
@@ -8,19 +8,22 @@ local RunService     = game:GetService("RunService")
 local Workspace      = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local TweenService   = game:GetService("TweenService")
+local VIM            = game:GetService("VirtualInputManager")
 
 -- ══════════════════════════════════════
 --  配置区（按需修改）
 -- ══════════════════════════════════════
 local CONFIG = {
-    targetPlayerName     = "yaoshen21",   -- 目标玩家名
-    skillQueue           = {               -- 技能释放顺序
+    targetPlayerName     = "yaoshen21",    -- 目标玩家名
+    skillQueue           = {               -- 技能释放顺序（不含Prey's Peril，由动画触发）
         "Flowing Water",
         "Lethal Whirlwind Stream",
         "Hunter's Grasp",
-        "Prey's Peril",
     },
-    skillCooldown        = 3,              -- 技能冷却(秒)
+    preySkillName        = "Prey's Peril",          -- 动画反制技能名
+    preyTriggerAnimId    = "15290930205",            -- 触发Prey's Peril的目标动画ID
+    preySkillCooldown    = 1.5,            -- Prey's Peril 独立冷却(秒)，应短于主技能冷却
+    skillCooldown        = 3,              -- 普通技能冷却(秒)
     attackRange          = 7,              -- 攻击触发距离(米)
     dashRange            = 35,             -- 冲刺触发距离(米)
     minFollowDistance    = 4,              -- 最小跟随距离(米)
@@ -29,7 +32,9 @@ local CONFIG = {
     dashDebounce         = 0.5,            -- 冲刺最小间隔(秒)
     ragdollFleeDistance  = 15,             -- 布娃娃时保持的安全距离(米)
     sideDashInterval     = 2.5,            -- 侧闪触发间隔(秒)
-    sideDashDuration     = 0.15,           -- 侧闪移动持续时长(秒)
+    sideDashDuration     = 0.2,            -- 侧闪持续时长(秒)
+    teleportAnimId       = "7807831448",   -- 触发瞬移的自身动画ID
+    teleportBehindDist   = 4,              -- 瞬移到目标背后的距离(米)
 }
 
 -- ══════════════════════════════════════
@@ -43,17 +48,22 @@ local camera          = Workspace.CurrentCamera
 local trackConn       = nil   -- RenderStepped 连接
 local isAttacking     = false
 local lastSkillTime   = 0
+local lastPreyTime    = 0     -- Prey's Peril 独立冷却计时
 local lastDashTime    = 0
 local lastSideDashTime = 0
 local currentSkillIdx = 1
 local humanoidDiedConn  = nil
 local targetDiedConn    = nil
 local targetRespawnConn = nil
-local targetRagdollConn = nil   -- PlatformStand 检测
-local targetStateConn   = nil   -- StateChanged 检测
+local targetRagdollConn = nil
+local targetStateConn   = nil
+local animWatchConn     = nil  -- 目标动画检测连接
+local selfAnimWatchConn = nil  -- 自身动画检测连接
 
--- 目标布娃娃状态
-local targetIsRagdoll = false
+-- 目标布娃娃状态 / 动画反制状态 / 自身瞬移状态
+local targetIsRagdoll   = false
+local preyAnimDetected  = false
+local teleportDetected  = false  -- 防止同一段动画重复瞬移
 
 -- GUI 状态
 local guiEnabled      = true
@@ -76,6 +86,8 @@ end
 -- ══════════════════════════════════════
 --  战斗动作
 -- ══════════════════════════════════════
+local statusText = nil  -- 供GUI和战斗函数更新
+
 local function fireServer(args)
     local comm = character:FindFirstChild("Communicate")
     if comm then
@@ -87,33 +99,66 @@ local function performDash()
     fireServer({ { Dash = Enum.KeyCode.W, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
 end
 
--- 侧闪：向右移动 + 同时触发Q键冲刺
+-- 侧闪：模拟真实D键按下 + Q冲刺键，触发游戏原生向右冲刺
 local function performSideDash()
     local now = tick()
     if (now - lastSideDashTime) < CONFIG.sideDashInterval then return end
     lastSideDashTime = now
 
     task.spawn(function()
-        -- 先按Q触发冲刺技能
-        fireServer({ { Dash = Enum.KeyCode.D, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
-
-        -- 同时向右移动持续 sideDashDuration 秒
-        local rootPart = character:FindFirstChild("HumanoidRootPart")
-        if not rootPart then return end
-
-        local elapsed = 0
-        local stepTime = 0.03
-        while elapsed < CONFIG.sideDashDuration do
-            task.wait(stepTime)
-            elapsed = elapsed + stepTime
-            -- 取角色当前右方向（本地坐标）
-            local rightDir = rootPart.CFrame.RightVector
-            humanoid:Move(rightDir, false)
-        end
+        -- 同时按下 D + Q，触发游戏的向右冲刺
+        VIM:SendKeyEvent(true,  Enum.KeyCode.D, false, game)
+        VIM:SendKeyEvent(true,  Enum.KeyCode.Q, false, game)
+        task.wait(CONFIG.sideDashDuration)
+        VIM:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+        VIM:SendKeyEvent(false, Enum.KeyCode.D, false, game)
     end)
 end
 
-local function performNormalAttack()
+-- Prey's Peril 独立触发（不走普通技能队列，有独立冷却）
+local function performPreySkill()
+    local now = tick()
+    if (now - lastPreyTime) < CONFIG.preySkillCooldown then return end
+    local tool = localPlayer.Backpack:FindFirstChild(CONFIG.preySkillName)
+    if tool then
+        fireServer({ { Tool = tool, Goal = "Console Move" } })
+        lastPreyTime = now
+        if statusText then
+            -- 短暂显示反制提示（下一帧状态更新会覆盖）
+            task.spawn(function()
+                local prev = statusText.Text
+                statusText.Text = "⚡ 触发反制: " .. CONFIG.preySkillName
+                statusText.TextColor3 = Color3.fromRGB(255, 220, 60)
+                task.wait(0.8)
+                statusText.TextColor3 = Color3.fromRGB(120, 220, 160)
+            end)
+        end
+    else
+        warn("[AutoBattle] 反制技能未找到: " .. CONFIG.preySkillName)
+    end
+end
+
+-- 瞬移到目标背后（检测到自身动画 7807831448 时触发）
+local function teleportBehindTarget()
+    local targetPlayer = Players:FindFirstChild(CONFIG.targetPlayerName)
+    if not targetPlayer then return end
+    local targetChar = targetPlayer.Character
+    if not targetChar then return end
+    local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+    local myRoot     = character:FindFirstChild("HumanoidRootPart")
+    if not targetRoot or not myRoot then return end
+
+    -- 目标背后方向 = 目标朝向的反方向
+    local behindDir  = targetRoot.CFrame.LookVector  -- 目标面朝方向，我们站背后
+    local behindPos  = targetRoot.Position + behindDir * CONFIG.teleportBehindDist
+
+    -- 保持与目标相同高度，朝向目标
+    local newCFrame = CFrame.new(
+        Vector3.new(behindPos.X, targetRoot.Position.Y, behindPos.Z)
+    ) * CFrame.Angles(0, math.pi, 0)  -- 旋转180°朝向目标
+
+    myRoot.CFrame = newCFrame
+end
     fireServer({ { Goal = "LeftClick", Mobile = true } })
 end
 
@@ -154,8 +199,6 @@ end
 -- ══════════════════════════════════════
 --  追踪主逻辑
 -- ══════════════════════════════════════
-local statusText = nil  -- 供GUI更新
-
 local function trackAndAim()
     stopTracking()  -- 防止重复连接
 
@@ -174,14 +217,54 @@ local function trackAndAim()
     if targetRespawnConn then targetRespawnConn:Disconnect() end
     if targetRagdollConn then targetRagdollConn:Disconnect() end
     if targetStateConn   then targetStateConn:Disconnect()   end
-    targetIsRagdoll = false  -- 重置状态，防止旧状态残留
+    if selfAnimWatchConn then selfAnimWatchConn:Disconnect(); selfAnimWatchConn = nil end
+    targetIsRagdoll = false
 
     targetDiedConn = targetHumanoid.Died:Connect(function()
         stopTracking()
         stopAttacking()
         targetIsRagdoll = false
+        preyAnimDetected = false
+        if animWatchConn then animWatchConn:Disconnect(); animWatchConn = nil end
         if statusText then statusText.Text = "状态: 目标已死亡" end
     end)
+
+    -- ── Prey's Peril 动画反制检测 ──
+    -- 每帧轮询目标 Animator 正在播放的动画，检测到指定ID立即反制
+    if animWatchConn then animWatchConn:Disconnect() end
+    local targetAnimator = targetHumanoid:FindFirstChildOfClass("Animator")
+    if targetAnimator then
+        animWatchConn = RunService.Heartbeat:Connect(function()
+            if not trackEnabled then return end
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+            if not rootPart or not targetRoot then return end
+            local distance = (targetRoot.Position - rootPart.Position).Magnitude
+            if distance > CONFIG.attackRange then
+                preyAnimDetected = false
+                return
+            end
+
+            local detected = false
+            for _, track in ipairs(targetAnimator:GetPlayingAnimationTracks()) do
+                local animId = tostring(track.Animation.AnimationId)
+                if animId:find(CONFIG.preyTriggerAnimId) then
+                    detected = true
+                    break
+                end
+            end
+
+            if detected and not preyAnimDetected then
+                -- 首次检测到该动画，立即触发反制
+                preyAnimDetected = true
+                performPreySkill()
+            elseif not detected then
+                preyAnimDetected = false  -- 动画结束，重置标记，下次可再触发
+            end
+        end)
+    else
+        warn("[AutoBattle] 目标没有 Animator，动画反制无法启动")
+    end
 
     -- ── 目标布娃娃检测（绑定在目标身上）──
     -- 方法1: PlatformStand —— 大多数布娃娃系统设置此属性为 true
@@ -210,9 +293,39 @@ local function trackAndAim()
     targetRespawnConn = targetPlayer.CharacterAdded:Connect(function(newChar)
         targetCharacter = newChar
         targetIsRagdoll = false
+        preyAnimDetected = false
+        teleportDetected = false
+        if animWatchConn then animWatchConn:Disconnect(); animWatchConn = nil end
+        if selfAnimWatchConn then selfAnimWatchConn:Disconnect(); selfAnimWatchConn = nil end
         task.wait(0.5)
-        trackAndAim()  -- 目标重生后重新追踪
+        trackAndAim()
     end)
+
+    -- ── 自身动画瞬移检测 ──
+    -- 监听自己的 Animator，检测到指定动画立刻瞬移到目标背后
+    local selfHumanoid = character:WaitForChild("Humanoid")
+    local selfAnimator = selfHumanoid:FindFirstChildOfClass("Animator")
+    if selfAnimator then
+        selfAnimWatchConn = RunService.Heartbeat:Connect(function()
+            if not trackEnabled then return end
+            local detected = false
+            for _, track in ipairs(selfAnimator:GetPlayingAnimationTracks()) do
+                local animId = tostring(track.Animation.AnimationId)
+                if animId:find(CONFIG.teleportAnimId) then
+                    detected = true
+                    break
+                end
+            end
+            if detected and not teleportDetected then
+                teleportDetected = true
+                teleportBehindTarget()
+            elseif not detected then
+                teleportDetected = false
+            end
+        end)
+    else
+        warn("[AutoBattle] 自身没有 Animator，瞬移检测无法启动")
+    end
 
     trackConn = RunService.RenderStepped:Connect(function()
         if not trackEnabled then return end
@@ -294,6 +407,8 @@ end
 local function onLocalDeath()
     stopTracking()
     stopAttacking()
+    teleportDetected = false
+    if selfAnimWatchConn then selfAnimWatchConn:Disconnect(); selfAnimWatchConn = nil end
     if humanoidDiedConn then humanoidDiedConn:Disconnect() end
     if statusText then statusText.Text = "状态: 重生中..." end
 
@@ -324,7 +439,7 @@ local function createGUI()
     -- ── 主面板 ──
     local panel = Instance.new("Frame")
     panel.Name = "Panel"
-    panel.Size = UDim2.new(0, 240, 0, 300)
+    panel.Size = UDim2.new(0, 240, 0, 320)
     panel.Position = UDim2.new(0, 20, 0.5, -140)
     panel.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
     panel.BorderSizePixel = 0
@@ -366,7 +481,7 @@ local function createGUI()
     titleLabel.Size = UDim2.new(1, -10, 1, 0)
     titleLabel.Position = UDim2.new(0, 10, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = "⚔  AutoBattle v2.1"
+    titleLabel.Text = "⚔  AutoBattle v2.3"
     titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     titleLabel.TextSize = 14
     titleLabel.Font = Enum.Font.GothamBold
@@ -544,6 +659,18 @@ local function createGUI()
         end
     end)
 
+    -- ── 动画反制状态 ──
+    local preyLabel = makeLabel("⚡ 动画反制: 待机", 14)
+    RunService.Heartbeat:Connect(function()
+        if preyAnimDetected then
+            preyLabel.Text = "⚡ 动画反制: 触发中！"
+            preyLabel.TextColor3 = Color3.fromRGB(255, 220, 60)
+        else
+            preyLabel.Text = "⚡ 动画反制: 待机"
+            preyLabel.TextColor3 = Color3.fromRGB(120, 140, 180)
+        end
+    end)
+
     -- ── 技能冷却显示 ──
     local cdLabel = makeLabel("技能冷却: " .. CONFIG.skillCooldown .. "s", 14)
 
@@ -567,7 +694,7 @@ local function createGUI()
         TweenService:Create(panel, tweenInfo, {
             Size = collapsed
                 and UDim2.new(0, 240, 0, 36)
-                or  UDim2.new(0, 240, 0, 300)
+                or  UDim2.new(0, 240, 0, 320)
         }):Play()
         content.Visible = not collapsed
         collapseBtn.Text = collapsed and "□" or "─"
