@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════╗
--- ║           AutoBattle Script  v2.0                   ║
--- ║           优化版本 · 含GUI控制面板                     ║
+-- ║           AutoBattle Script  v2.1                   ║
+-- ║      布娃娃检测 · 真实跑步移动 · GUI控制面板            ║
 -- ╚══════════════════════════════════════════════════════╝
 
 local Players        = game:GetService("Players")
@@ -13,7 +13,7 @@ local TweenService   = game:GetService("TweenService")
 --  配置区（按需修改）
 -- ══════════════════════════════════════
 local CONFIG = {
-    targetPlayerName     = "yaoshen21",   -- 目标玩家名
+    targetPlayerName     = "chongfenbu",   -- 目标玩家名
     skillQueue           = {               -- 技能释放顺序
         "Flowing Water",
         "Lethal Whirlwind Stream",
@@ -27,6 +27,7 @@ local CONFIG = {
     attackInterval       = 0.3,            -- 普攻按下时长(秒)
     attackGap            = 0.5,            -- 普攻释放后间隔(秒)
     dashDebounce         = 0.5,            -- 冲刺最小间隔(秒)
+    ragdollFleeDistance  = 15,             -- 布娃娃时保持的安全距离(米)
 }
 
 -- ══════════════════════════════════════
@@ -45,6 +46,9 @@ local currentSkillIdx = 1
 local humanoidDiedConn = nil
 local targetDiedConn  = nil
 local targetRespawnConn = nil
+
+-- 目标布娃娃状态
+local targetIsRagdoll = false
 
 -- GUI 状态
 local guiEnabled      = true
@@ -141,11 +145,29 @@ local function trackAndAim()
     targetDiedConn = targetHumanoid.Died:Connect(function()
         stopTracking()
         stopAttacking()
+        targetIsRagdoll = false
         if statusText then statusText.Text = "状态: 目标已死亡" end
+    end)
+
+    -- ── 布娃娃状态检测 ──
+    -- 方法1: PlatformStand (大多数布娃娃实现)
+    targetHumanoid:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+        targetIsRagdoll = targetHumanoid.PlatformStand
+    end)
+    -- 方法2: 状态切换到 Physics (部分游戏用这种方式)
+    targetHumanoid.StateChanged:Connect(function(_, newState)
+        if newState == Enum.HumanoidStateType.Physics then
+            targetIsRagdoll = true
+        elseif newState == Enum.HumanoidStateType.GettingUp
+            or newState == Enum.HumanoidStateType.Running
+            or newState == Enum.HumanoidStateType.Landed then
+            targetIsRagdoll = false
+        end
     end)
 
     targetRespawnConn = targetPlayer.CharacterAdded:Connect(function(newChar)
         targetCharacter = newChar
+        targetIsRagdoll = false
         task.wait(0.5)
         trackAndAim()  -- 目标重生后重新追踪
     end)
@@ -162,13 +184,42 @@ local function trackAndAim()
         local distance  = (targetPos - myPos).Magnitude
         local direction = (targetPos - myPos).Unit
 
-        -- 移动
-        if distance > CONFIG.minFollowDistance then
-            humanoid:MoveTo(targetPos - direction * CONFIG.minFollowDistance)
-        end
-
         -- 镜头对准
         camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetPos)
+
+        -- ── 布娃娃模式：远离目标 ──
+        if targetIsRagdoll then
+            stopAttacking()
+
+            -- 先把角色朝向远离方向，再用 Humanoid:Move 触发跑步动画
+            local fleeDir = -direction  -- 反方向
+            rootPart.CFrame = CFrame.lookAt(myPos, myPos + fleeDir)
+
+            if distance < CONFIG.ragdollFleeDistance then
+                -- 还没拉开足够距离，继续逃
+                humanoid:Move(fleeDir, false)  -- false = 世界坐标方向
+            else
+                -- 已经足够远，原地等待
+                humanoid:Move(Vector3.zero, false)
+            end
+
+            if statusText then
+                statusText.Text = string.format(
+                    "状态: 🪆 目标布娃娃，撤退中\n目标: %s\n距离: %.1f m",
+                    CONFIG.targetPlayerName, distance
+                )
+            end
+            return  -- 布娃娃期间跳过追击逻辑
+        end
+
+        -- ── 正常追踪模式 ──
+        -- 朝目标方向旋转角色，再用 Humanoid:Move 触发跑步动画（不用MoveTo）
+        if distance > CONFIG.minFollowDistance then
+            rootPart.CFrame = CFrame.lookAt(myPos, Vector3.new(targetPos.X, myPos.Y, targetPos.Z))
+            humanoid:Move(direction, false)
+        else
+            humanoid:Move(Vector3.zero, false)
+        end
 
         -- 冲刺（加debounce）
         local now = tick()
@@ -187,7 +238,7 @@ local function trackAndAim()
         -- 更新GUI状态
         if statusText then
             statusText.Text = string.format(
-                "状态: 追踪中\n目标: %s\n距离: %.1f m",
+                "状态: 🎯 追踪中\n目标: %s\n距离: %.1f m",
                 CONFIG.targetPlayerName, distance
             )
         end
@@ -230,7 +281,7 @@ local function createGUI()
     -- ── 主面板 ──
     local panel = Instance.new("Frame")
     panel.Name = "Panel"
-    panel.Size = UDim2.new(0, 240, 0, 280)
+    panel.Size = UDim2.new(0, 240, 0, 300)
     panel.Position = UDim2.new(0, 20, 0.5, -140)
     panel.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
     panel.BorderSizePixel = 0
@@ -272,7 +323,7 @@ local function createGUI()
     titleLabel.Size = UDim2.new(1, -10, 1, 0)
     titleLabel.Position = UDim2.new(0, 10, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = "⚔  AutoBattle v2.0"
+    titleLabel.Text = "⚔  AutoBattle v2.1"
     titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     titleLabel.TextSize = 14
     titleLabel.Font = Enum.Font.GothamBold
@@ -438,6 +489,18 @@ local function createGUI()
         if not on then stopAttacking() end
     end)
 
+    -- ── 布娃娃状态指示 ──
+    local ragdollLabel = makeLabel("🪆 布娃娃: 监测中", 14)
+    RunService.Heartbeat:Connect(function()
+        if targetIsRagdoll then
+            ragdollLabel.Text = "🪆 布娃娃: ⚠ 目标倒地，撤退中"
+            ragdollLabel.TextColor3 = Color3.fromRGB(255, 180, 50)
+        else
+            ragdollLabel.Text = "🪆 布娃娃: 正常"
+            ragdollLabel.TextColor3 = Color3.fromRGB(100, 220, 140)
+        end
+    end)
+
     -- ── 技能冷却显示 ──
     local cdLabel = makeLabel("技能冷却: " .. CONFIG.skillCooldown .. "s", 14)
 
@@ -461,7 +524,7 @@ local function createGUI()
         TweenService:Create(panel, tweenInfo, {
             Size = collapsed
                 and UDim2.new(0, 240, 0, 36)
-                or  UDim2.new(0, 240, 0, 280)
+                or  UDim2.new(0, 240, 0, 300)
         }):Play()
         content.Visible = not collapsed
         collapseBtn.Text = collapsed and "□" or "─"
