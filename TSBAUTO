@@ -341,8 +341,10 @@ guardAndCombat = function()
     -- 主人重生
     CONN.masterRespawn = masterPlayer.CharacterAdded:Connect(function(newChar)
         masterChar = newChar
-        task.wait(0.5)
-        guardAndCombat()
+        task.spawn(function()
+            task.wait(0.5)
+            guardAndCombat()
+        end)
     end)
 
     -- 自身动画瞬移检测（始终运行，瞬移目标根据当前模式）
@@ -480,12 +482,13 @@ local function onLocalDeath()
     disconnectAll(); stopAttacking()
     setStatus("状态: 💫 重生中...", Color3.fromRGB(160, 160, 160))
 
-    character = LP.CharacterAdded:Wait()
-    humanoid  = character:WaitForChild("Humanoid")
-    CONN.localDied = humanoid.Died:Connect(onLocalDeath)
-
-    task.wait(1)
-    guardAndCombat()
+    task.spawn(function()
+        character = LP.CharacterAdded:Wait()
+        humanoid  = character:WaitForChild("Humanoid")
+        CONN.localDied = humanoid.Died:Connect(onLocalDeath)
+        task.wait(1)  -- 等角色完全加载
+        guardAndCombat()
+    end)
 end
 
 -- ══════════════════════════════════════
