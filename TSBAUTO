@@ -13,7 +13,7 @@ local TweenService   = game:GetService("TweenService")
 --  配置区（按需修改）
 -- ══════════════════════════════════════
 local CONFIG = {
-    targetPlayerName     = "chongfenbu",   -- 目标玩家名
+    targetPlayerName     = "yaoshen21",   -- 目标玩家名
     skillQueue           = {               -- 技能释放顺序
         "Flowing Water",
         "Lethal Whirlwind Stream",
