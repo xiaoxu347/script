@@ -19,7 +19,7 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 -- ══════════════════════════════════════
 local CFG = {
     masterName        = "yaoshen21",    -- 主人玩家名（平时跟随，不攻击）
-    guardRadius       = 150,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
+    guardRadius       = 80,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
     masterFollowDist  = 4,              -- 跟随主人时保持的距离(米)
     masterDashRange   = 35,             -- 跟随时冲刺触发距离(米)
     dashDebounce      = 0.5,            -- 冲刺间隔(秒)
