@@ -23,11 +23,13 @@ local CONFIG = {
     skillCooldown        = 3,              -- 技能冷却(秒)
     attackRange          = 7,              -- 攻击触发距离(米)
     dashRange            = 35,             -- 冲刺触发距离(米)
-    minFollowDistance    = 3,              -- 最小跟随距离(米)
+    minFollowDistance    = 4,              -- 最小跟随距离(米)
     attackInterval       = 0.3,            -- 普攻按下时长(秒)
     attackGap            = 0.5,            -- 普攻释放后间隔(秒)
     dashDebounce         = 0.5,            -- 冲刺最小间隔(秒)
     ragdollFleeDistance  = 15,             -- 布娃娃时保持的安全距离(米)
+    sideDashInterval     = 2.5,            -- 侧闪触发间隔(秒)
+    sideDashDuration     = 0.15,           -- 侧闪移动持续时长(秒)
 }
 
 -- ══════════════════════════════════════
@@ -42,10 +44,13 @@ local trackConn       = nil   -- RenderStepped 连接
 local isAttacking     = false
 local lastSkillTime   = 0
 local lastDashTime    = 0
+local lastSideDashTime = 0
 local currentSkillIdx = 1
-local humanoidDiedConn = nil
-local targetDiedConn  = nil
+local humanoidDiedConn  = nil
+local targetDiedConn    = nil
 local targetRespawnConn = nil
+local targetRagdollConn = nil   -- PlatformStand 检测
+local targetStateConn   = nil   -- StateChanged 检测
 
 -- 目标布娃娃状态
 local targetIsRagdoll = false
@@ -80,6 +85,32 @@ end
 
 local function performDash()
     fireServer({ { Dash = Enum.KeyCode.W, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
+end
+
+-- 侧闪：向右移动 + 同时触发Q键冲刺
+local function performSideDash()
+    local now = tick()
+    if (now - lastSideDashTime) < CONFIG.sideDashInterval then return end
+    lastSideDashTime = now
+
+    task.spawn(function()
+        -- 先按Q触发冲刺技能
+        fireServer({ { Dash = Enum.KeyCode.D, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
+
+        -- 同时向右移动持续 sideDashDuration 秒
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if not rootPart then return end
+
+        local elapsed = 0
+        local stepTime = 0.03
+        while elapsed < CONFIG.sideDashDuration do
+            task.wait(stepTime)
+            elapsed = elapsed + stepTime
+            -- 取角色当前右方向（本地坐标）
+            local rightDir = rootPart.CFrame.RightVector
+            humanoid:Move(rightDir, false)
+        end
+    end)
 end
 
 local function performNormalAttack()
@@ -138,9 +169,12 @@ local function trackAndAim()
     local targetCharacter = targetPlayer.Character or targetPlayer.CharacterAdded:Wait()
     local targetHumanoid  = targetCharacter:WaitForChild("Humanoid")
 
-    -- 清理旧连接
-    if targetDiedConn then targetDiedConn:Disconnect() end
+    -- 清理旧连接（包括布娃娃检测）
+    if targetDiedConn    then targetDiedConn:Disconnect()    end
     if targetRespawnConn then targetRespawnConn:Disconnect() end
+    if targetRagdollConn then targetRagdollConn:Disconnect() end
+    if targetStateConn   then targetStateConn:Disconnect()   end
+    targetIsRagdoll = false  -- 重置状态，防止旧状态残留
 
     targetDiedConn = targetHumanoid.Died:Connect(function()
         stopTracking()
@@ -149,19 +183,27 @@ local function trackAndAim()
         if statusText then statusText.Text = "状态: 目标已死亡" end
     end)
 
-    -- ── 布娃娃状态检测 ──
-    -- 方法1: PlatformStand (大多数布娃娃实现)
-    targetHumanoid:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+    -- ── 目标布娃娃检测（绑定在目标身上）──
+    -- 方法1: PlatformStand —— 大多数布娃娃系统设置此属性为 true
+    targetRagdollConn = targetHumanoid:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+        local wasRagdoll = targetIsRagdoll
         targetIsRagdoll = targetHumanoid.PlatformStand
+        if not wasRagdoll and targetIsRagdoll then
+            stopAttacking()  -- 目标刚倒下，立即停止攻击
+        end
     end)
-    -- 方法2: 状态切换到 Physics (部分游戏用这种方式)
-    targetHumanoid.StateChanged:Connect(function(_, newState)
+    -- 方法2: HumanoidStateType.Physics —— 另一种布娃娃实现方式
+    targetStateConn = targetHumanoid.StateChanged:Connect(function(_, newState)
         if newState == Enum.HumanoidStateType.Physics then
-            targetIsRagdoll = true
+            if not targetIsRagdoll then
+                targetIsRagdoll = true
+                stopAttacking()
+            end
         elseif newState == Enum.HumanoidStateType.GettingUp
-            or newState == Enum.HumanoidStateType.Running
-            or newState == Enum.HumanoidStateType.Landed then
-            targetIsRagdoll = false
+            or  newState == Enum.HumanoidStateType.Running
+            or  newState == Enum.HumanoidStateType.Landed
+            or  newState == Enum.HumanoidStateType.RunningNoPhysics then
+            targetIsRagdoll = false  -- 目标已恢复站立，下一帧自动继续追击
         end
     end)
 
@@ -228,9 +270,10 @@ local function trackAndAim()
             lastDashTime = now
         end
 
-        -- 攻击
+        -- 攻击 + 侧闪
         if distance <= CONFIG.attackRange then
             attackLoop()
+            performSideDash()  -- 在攻击范围内周期性侧闪
         else
             stopAttacking()
         end
