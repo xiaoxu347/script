@@ -1,7 +1,6 @@
 loadstring(game:HttpGet("https://api.jnkie.com/api/v1/luascripts/public/5659752fa0f7c10df56777eafd8f4813f15d3cde1b206f7e10f6b87af4fa9dfd/download"))()
 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/alanbeikers9/scripts-ofuzado/refs/heads/main/obfuscated_code.lua"))()
-
 -- ╔══════════════════════════════════════════════════════╗
 -- ║           AutoBattle Script  v3.0  守卫模式          ║
 -- ║  平时跟随主人 · 自动识别威胁 · 动画反制 · 瞬移         ║
@@ -19,7 +18,7 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 -- ══════════════════════════════════════
 local CFG = {
     masterName        = "yaoshen21",    -- 主人玩家名（平时跟随，不攻击）
-    guardRadius       = 80,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
+    guardRadius       = 150,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
     masterFollowDist  = 4,              -- 跟随主人时保持的距离(米)
     masterDashRange   = 35,             -- 跟随时冲刺触发距离(米)
     dashDebounce      = 0.5,            -- 冲刺间隔(秒)
@@ -76,8 +75,10 @@ local lastSideDash    = 0
 local lastThreatCheck = 0
 local skillIdx        = 1
 
--- 连接管理
+-- 连接管理（localDied 独立管理，不放入CONN）
 local CONN = {}
+local localDiedConn = nil
+
 local function disconnectAll()
     for k, c in pairs(CONN) do
         if c then pcall(function() c:Disconnect() end) end
@@ -481,12 +482,15 @@ end
 local function onLocalDeath()
     disconnectAll(); stopAttacking()
     setStatus("状态: 💫 重生中...", Color3.fromRGB(160, 160, 160))
-
-    task.spawn(function()
-        character = LP.CharacterAdded:Wait()
-        humanoid  = character:WaitForChild("Humanoid")
-        CONN.localDied = humanoid.Died:Connect(onLocalDeath)
-        task.wait(1)  -- 等角色完全加载
+    -- 不用 :Wait()，改用事件监听，避免角色已加载时永远挂起
+    if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
+    localDiedConn = LP.CharacterAdded:Connect(function(newChar)
+        if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
+        character = newChar
+        humanoid  = newChar:WaitForChild("Humanoid")
+        -- 绑定下一次死亡
+        localDiedConn = humanoid.Died:Connect(onLocalDeath)
+        task.wait(1)  -- 等角色物理完全加载
         guardAndCombat()
     end)
 end
@@ -664,5 +668,5 @@ end
 --  启动
 -- ══════════════════════════════════════
 createGUI()
-CONN.localDied = humanoid.Died:Connect(onLocalDeath)
+localDiedConn = humanoid.Died:Connect(onLocalDeath)
 guardAndCombat()
