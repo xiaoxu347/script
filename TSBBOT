@@ -1,0 +1,727 @@
+-- ╔══════════════════════════════════════════════════════╗
+-- ║           AutoBattle Script  v3.1  守卫模式          ║
+-- ║  平时跟随主人 · 自动识别威胁 · 地下待机 · 瞬移         ║
+-- ╚══════════════════════════════════════════════════════╝
+
+local Players    = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenSvc   = game:GetService("TweenService")
+
+local VIM
+pcall(function() VIM = game:GetService("VirtualInputManager") end)
+
+-- ══════════════════════════════════════
+--  配置区（按需修改）
+-- ══════════════════════════════════════
+local CFG = {
+    masterName        = "yaoshen21",    -- 主人玩家名（平时跟随，不攻击）
+    whitelist         = {               -- 白名单：这些玩家不会被追击（填用户名）
+        "yaoshen21",                   -- 主人自动在白名单内（可留可删）
+        -- "PlayerB",
+        -- "PlayerC",
+    },
+    guardRadius       = 150,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
+    masterFollowDist  = 4,              -- 跟随主人时保持的距离(米)
+    masterDashRange   = 35,             -- 跟随时冲刺触发距离(米)
+    dashDebounce      = 0.5,            -- 冲刺间隔(秒)
+
+    -- 战斗参数
+    skillQueue        = { "Normal Punch", "Consecutive Punches", "Shove" ,"Uppercut"},
+    teleportAnimId    = "10470389827",  -- 触发瞬移的自身动画ID
+    teleportDist      = 4,              -- 瞬移到敌方背后距离(米)
+    skillCD           = 3,              -- 普通技能冷却(秒)
+    attackRange       = 7,              -- 攻击距离(米)
+    combatFollowDist  = 4,              -- 战斗时跟随敌方距离(米)
+    combatDashRange   = 35,             -- 战斗时冲刺距离(米)
+    attackPressTime   = 0.3,            -- 普攻按下时长(秒)
+    attackGap         = 0.5,            -- 普攻间隔(秒)
+    sideDashInterval  = 2.5,            -- 侧闪间隔(秒)
+    sideDashDuration  = 0.2,            -- 侧闪持续(秒)
+    fleeDist          = 15,             -- 敌方布娃娃时撤退距离(米)
+    threatCheckRate   = 0.5,            -- 威胁扫描间隔(秒)，不要太频繁
+    standbyDepth      = -50,            -- 待机时沉入地下的Y坐标(负数=地下)
+}
+
+-- ══════════════════════════════════════
+--  本地引用
+-- ══════════════════════════════════════
+local LP     = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local character, humanoid
+
+local function refreshChar()
+    character = LP.Character or LP.CharacterAdded:Wait()
+    humanoid  = character:WaitForChild("Humanoid")
+end
+refreshChar()
+
+-- ══════════════════════════════════════
+--  状态变量
+-- ══════════════════════════════════════
+-- 模式："guard"=跟随主人  "combat"=战斗
+local mode            = "guard"
+local currentEnemy    = nil   -- 当前锁定的敌方Player对象
+local currentEnemyChar= nil   -- 敌方Character
+local isAttacking     = false
+local enemyIsRagdoll  = false
+local tpDetected      = false
+local trackEnabled    = true
+
+local lastSkillTime   = 0
+local lastDashTime    = 0
+local lastSideDash    = 0
+local lastThreatCheck = 0
+local skillIdx        = 1
+
+-- 连接管理（localDied 独立管理，不放入CONN）
+local CONN = {}
+local localDiedConn = nil
+
+-- 地下待机状态
+local isStandby         = false   -- true = 待机中，暂停所有跟随
+local standbyAnchor     = nil     -- 待机时锁定的地下位置(Vector3)
+
+-- 主人动画双击检测
+local masterAnimCount   = 0       -- 当前窗口内检测到的动画触发次数
+local masterAnimTimer   = 0       -- 第一次触发的时间戳
+local masterAnimWindow  = 2       -- 双击时间窗口(秒)
+local masterAnimDetected= false   -- 上一帧是否检测到该动画（边沿触发用）
+
+local function disconnectAll()
+    for k, c in pairs(CONN) do
+        if c then pcall(function() c:Disconnect() end) end
+        CONN[k] = nil
+    end
+end
+
+-- GUI标签（提前声明）
+local statusLabel, modeLabel, enemyLabel, ragdollLabel, tpLabel, cdLabel
+
+local function setStatus(text, color)
+    if not statusLabel then return end
+    statusLabel.Text       = text
+    statusLabel.TextColor3 = color or Color3.fromRGB(120, 220, 160)
+end
+
+-- ══════════════════════════════════════
+--  基础动作
+-- ══════════════════════════════════════
+local function fireServer(t)
+    local comm = character and character:FindFirstChild("Communicate")
+    if comm then pcall(function() comm:FireServer(unpack(t)) end) end
+end
+
+local function performDash()
+    fireServer({ { Dash = Enum.KeyCode.W, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
+end
+
+local function performSideDash()
+    local now = tick()
+    if now - lastSideDash < CFG.sideDashInterval then return end
+    lastSideDash = now
+    task.spawn(function()
+        if VIM then
+            pcall(function()
+                VIM:SendKeyEvent(true,  Enum.KeyCode.D, false, game)
+                VIM:SendKeyEvent(true,  Enum.KeyCode.Q, false, game)
+                task.wait(CFG.sideDashDuration)
+                VIM:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+                VIM:SendKeyEvent(false, Enum.KeyCode.D, false, game)
+            end)
+        else
+            fireServer({ { Dash = Enum.KeyCode.D, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
+        end
+    end)
+end
+
+local function performSkill(name)
+    local now = tick()
+    if now - lastSkillTime < CFG.skillCD then return end
+    local tool = LP.Backpack:FindFirstChild(name)
+    if not tool then return end
+    fireServer({ { Tool = tool, Goal = "Console Move" } })
+    lastSkillTime = now
+end
+
+local function stopAttacking()
+    isAttacking = false
+end
+
+local function attackLoop()
+    if isAttacking then return end
+    isAttacking = true
+    task.spawn(function()
+        while isAttacking do
+            fireServer({ { Goal = "LeftClick",        Mobile = true } })
+            task.wait(CFG.attackPressTime)
+            fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+            performSkill(CFG.skillQueue[skillIdx])
+            skillIdx = skillIdx % #CFG.skillQueue + 1
+            task.wait(CFG.attackGap)
+        end
+    end)
+end
+
+-- 动画检测辅助
+local function animHasId(animator, id)
+    local ok, tracks = pcall(function() return animator:GetPlayingAnimationTracks() end)
+    if not ok then return false end
+    for _, t in ipairs(tracks) do
+        if tostring(t.Animation.AnimationId):find(id, 1, true) then return true end
+    end
+    return false
+end
+
+-- 瞬移到当前敌方背后
+local function teleportBehindEnemy()
+    if not currentEnemyChar then return end
+    local eRoot = currentEnemyChar:FindFirstChild("HumanoidRootPart")
+    local mRoot = character and character:FindFirstChild("HumanoidRootPart")
+    if not eRoot or not mRoot then return end
+    local behind = eRoot.Position - eRoot.CFrame.LookVector * CFG.teleportDist
+    behind = Vector3.new(behind.X, eRoot.Position.Y, behind.Z)
+    pcall(function() mRoot.CFrame = CFrame.lookAt(behind, eRoot.Position) end)
+end
+
+-- ══════════════════════════════════════
+--  威胁检测：扫描主人附近的其他玩家
+--  返回最近的威胁Player，或nil
+-- ══════════════════════════════════════
+local function findNearestThreat()
+    local masterPlayer = Players:FindFirstChild(CFG.masterName)
+    if not masterPlayer or not masterPlayer.Character then return nil end
+    local masterRoot = masterPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not masterRoot then return nil end
+
+    local nearest, nearestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        -- 跳过自己和主人
+        if p ~= LP and p ~= masterPlayer then
+            -- 检查白名单
+            local inWhitelist = false
+            for _, name in ipairs(CFG.whitelist) do
+                if p.Name == name then inWhitelist = true; break end
+            end
+            if inWhitelist then continue end
+            local c = p.Character
+            if c then
+                local root = c:FindFirstChild("HumanoidRootPart")
+                local hum  = c:FindFirstChild("Humanoid")
+                if root and hum and hum.Health > 0 then
+                    local dist = (root.Position - masterRoot.Position).Magnitude
+                    if dist <= CFG.guardRadius and dist < nearestDist then
+                        nearest     = p
+                        nearestDist = dist
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+-- ══════════════════════════════════════
+--  进入守卫模式
+-- ══════════════════════════════════════
+local function enterGuardMode()
+    if mode == "guard" then return end
+    mode         = "guard"
+    currentEnemy     = nil
+    currentEnemyChar = nil
+    enemyIsRagdoll   = false
+    stopAttacking()
+
+    -- 清除敌方相关连接
+    if CONN.enemyDied    then CONN.enemyDied:Disconnect();    CONN.enemyDied    = nil end
+    if CONN.enemyRagdoll then CONN.enemyRagdoll:Disconnect(); CONN.enemyRagdoll = nil end
+    if CONN.enemyState   then CONN.enemyState:Disconnect();   CONN.enemyState   = nil end
+end
+
+-- ══════════════════════════════════════
+--  进入战斗模式（锁定新敌方）
+-- ══════════════════════════════════════
+local function enterCombatMode(enemyPlayer)
+    if currentEnemy == enemyPlayer and mode == "combat" then return end
+    mode             = "combat"
+    currentEnemy     = enemyPlayer
+    currentEnemyChar = enemyPlayer.Character
+    enemyIsRagdoll   = false
+    stopAttacking()
+
+    -- 清旧敌方连接
+    if CONN.enemyDied    then CONN.enemyDied:Disconnect()    end
+    if CONN.enemyRagdoll then CONN.enemyRagdoll:Disconnect() end
+    if CONN.enemyState   then CONN.enemyState:Disconnect()   end
+
+    local eHum = currentEnemyChar and currentEnemyChar:FindFirstChild("Humanoid")
+    if not eHum then return end
+
+    -- 敌方死亡 → 回守卫
+    CONN.enemyDied = eHum.Died:Connect(function()
+        enterGuardMode()
+        setStatus("状态: 🛡 目标击败，回守卫", Color3.fromRGB(100, 200, 255))
+    end)
+
+    -- 敌方离开（角色被移除）
+    CONN.enemyLeft = currentEnemy.CharacterRemoving:Connect(function()
+        enterGuardMode()
+    end)
+
+    -- 敌方布娃娃检测
+    CONN.enemyRagdoll = eHum:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+        enemyIsRagdoll = eHum.PlatformStand
+        if enemyIsRagdoll then stopAttacking() end
+    end)
+    CONN.enemyState = eHum.StateChanged:Connect(function(_, new)
+        if new == Enum.HumanoidStateType.Physics then
+            enemyIsRagdoll = true; stopAttacking()
+        elseif new == Enum.HumanoidStateType.GettingUp
+            or new == Enum.HumanoidStateType.Running
+            or new == Enum.HumanoidStateType.Landed
+            or new == Enum.HumanoidStateType.RunningNoPhysics then
+            enemyIsRagdoll = false
+        end
+    end)
+end
+
+-- ══════════════════════════════════════
+--  主循环
+-- ══════════════════════════════════════
+local guardAndCombat  -- 前向声明
+
+guardAndCombat = function()
+    disconnectAll()
+    stopAttacking()
+    mode             = "guard"
+    currentEnemy     = nil
+    currentEnemyChar = nil
+    enemyIsRagdoll   = false
+    tpDetected       = false
+    -- 待机状态重置（重生后解除待机）
+    if isStandby then
+        isStandby   = false
+        standbyAnchor = nil
+        pcall(function() if humanoid then humanoid.PlatformStand = false end end)
+    end
+    masterAnimCount    = 0
+    masterAnimTimer    = 0
+    masterAnimDetected = false
+
+    local masterPlayer = Players:FindFirstChild(CFG.masterName)
+    if not masterPlayer then
+        warn("[AutoBattle] 未找到主人: " .. CFG.masterName)
+        setStatus("状态: ❌ 主人未找到", Color3.fromRGB(255, 80, 80))
+        return
+    end
+
+    local masterChar     = masterPlayer.Character or masterPlayer.CharacterAdded:Wait()
+    local masterHumanoid = masterChar:WaitForChild("Humanoid")
+
+    -- 主人死亡
+    CONN.masterDied = masterHumanoid.Died:Connect(function()
+        disconnectAll(); stopAttacking()
+        setStatus("状态: 💀 主人死亡", Color3.fromRGB(200, 80, 80))
+    end)
+
+    -- 主人重生
+    CONN.masterRespawn = masterPlayer.CharacterAdded:Connect(function(newChar)
+        masterChar = newChar
+        task.spawn(function()
+            task.wait(0.5)
+            guardAndCombat()
+        end)
+    end)
+
+    -- 自身动画瞬移检测（始终运行，瞬移目标根据当前模式）
+    local sAnimator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+    if sAnimator then
+        CONN.tpAnim = RunService.Heartbeat:Connect(function()
+            if not trackEnabled then return end
+            -- 只在战斗模式且有敌方时才瞬移
+            if mode ~= "combat" or not currentEnemyChar then
+                tpDetected = false; return
+            end
+            local found = animHasId(sAnimator, CFG.teleportAnimId)
+            if found and not tpDetected then
+                tpDetected = true; teleportBehindEnemy()
+            elseif not found then
+                tpDetected = false
+            end
+        end)
+    end
+
+    -- 主人动画双击检测：2秒内连续两次 teleportAnimId → 切换地下待机/恢复
+    local mAnimator = masterHumanoid:FindFirstChildOfClass("Animator")
+    if mAnimator then
+        CONN.masterAnim = RunService.Heartbeat:Connect(function()
+            local found = animHasId(mAnimator, CFG.teleportAnimId)
+            -- 边沿触发：只在动画刚开始那一帧计数
+            if found and not masterAnimDetected then
+                masterAnimDetected = true
+                local now = tick()
+                if masterAnimCount == 0 then
+                    -- 第一次触发，开始计时
+                    masterAnimCount = 1
+                    masterAnimTimer = now
+                elseif now - masterAnimTimer <= masterAnimWindow then
+                    -- 第二次触发，且在时间窗口内
+                    masterAnimCount = 0
+                    masterAnimTimer = 0
+                    -- 切换待机状态
+                    if not isStandby then
+                        -- 进入待机：传送到地下锚定位置
+                        local mRoot = character and character:FindFirstChild("HumanoidRootPart")
+                        if mRoot then
+                            -- 保留XZ位置，Y设为地下深度
+                            standbyAnchor = Vector3.new(mRoot.Position.X, CFG.standbyDepth, mRoot.Position.Z)
+                            isStandby = true
+                            stopAttacking()
+                            pcall(function()
+                                humanoid.PlatformStand = true
+                                mRoot.CFrame = CFrame.new(standbyAnchor)
+                                mRoot.Velocity = Vector3.zero
+                            end)
+                            setStatus("状态: 🌑 地下待机中", Color3.fromRGB(130, 100, 200))
+                        end
+                    else
+                        -- 退出待机：传送回主人身边，恢复跟随
+                        isStandby = false
+                        standbyAnchor = nil
+                        pcall(function() humanoid.PlatformStand = false end)
+                        local mRoot      = character and character:FindFirstChild("HumanoidRootPart")
+                        local masterRoot = masterChar and masterChar:FindFirstChild("HumanoidRootPart")
+                        if mRoot and masterRoot then
+                            -- 传送到主人旁边偏移2米
+                            local offset = masterRoot.CFrame.RightVector * 2
+                            pcall(function()
+                                mRoot.CFrame = CFrame.new(masterRoot.Position + offset)
+                            end)
+                        end
+                        setStatus("状态: 🛡 恢复守卫", Color3.fromRGB(100, 200, 255))
+                    end
+                else
+                    -- 超出时间窗口，重新从第一次开始计
+                    masterAnimCount = 1
+                    masterAnimTimer = now
+                end
+            elseif not found then
+                masterAnimDetected = false
+            end
+        end)
+    else
+        warn("[AutoBattle] 主人无Animator，待机手势检测跳过")
+    end
+
+    -- 主循环
+    CONN.main = RunService.RenderStepped:Connect(function()
+        if not trackEnabled then return end
+
+        local mRoot = character and character:FindFirstChild("HumanoidRootPart")
+        if not mRoot then return end
+
+        -- ── 地下待机：锚定地下位置，不做任何跟随/战斗 ──
+        if isStandby then
+            stopAttacking()
+            if standbyAnchor then
+                pcall(function()
+                    humanoid.PlatformStand = true
+                    mRoot.CFrame = CFrame.new(standbyAnchor)
+                    mRoot.Velocity = Vector3.zero
+                end)
+            end
+            return
+        end
+
+        local now = tick()
+
+        -- ── 定期扫描威胁 ──
+        if now - lastThreatCheck >= CFG.threatCheckRate then
+            lastThreatCheck = now
+            local threat = findNearestThreat()
+            if threat then
+                -- 有威胁 → 进入或更新战斗模式
+                if mode == "guard" or currentEnemy ~= threat then
+                    enterCombatMode(threat)
+                end
+                -- 更新敌方char引用（对方可能刚重生）
+                currentEnemyChar = threat.Character
+            else
+                -- 无威胁 → 守卫模式
+                if mode == "combat" then enterGuardMode() end
+            end
+        end
+
+        -- ════════════════════════════
+        --  守卫模式：跟随主人，不攻击
+        -- ════════════════════════════
+        if mode == "guard" then
+            local masterRoot = masterChar and masterChar:FindFirstChild("HumanoidRootPart")
+            if not masterRoot then return end
+
+            local dist = (masterRoot.Position - mRoot.Position).Magnitude
+            local dir  = (masterRoot.Position - mRoot.Position).Unit
+
+            camera.CFrame = CFrame.lookAt(camera.CFrame.Position, masterRoot.Position)
+
+            if dist > CFG.masterFollowDist then
+                pcall(function()
+                    mRoot.CFrame = CFrame.lookAt(mRoot.Position,
+                        Vector3.new(masterRoot.Position.X, mRoot.Position.Y, masterRoot.Position.Z))
+                end)
+                humanoid:Move(dir, false)
+            else
+                humanoid:Move(Vector3.zero, false)
+            end
+
+            setStatus(string.format(
+                "状态: 🛡 守卫模式\n主人: %s | %.1fm",
+                CFG.masterName, dist), Color3.fromRGB(100, 200, 255))
+
+        -- ════════════════════════════
+        --  战斗模式：追击锁定的敌方
+        -- ════════════════════════════
+        elseif mode == "combat" then
+            if not currentEnemyChar then return end
+            local eRoot = currentEnemyChar:FindFirstChild("HumanoidRootPart")
+            if not eRoot then return end
+
+            local eDist = (eRoot.Position - mRoot.Position).Magnitude
+            local eDir  = (eRoot.Position - mRoot.Position).Unit
+
+            camera.CFrame = CFrame.lookAt(camera.CFrame.Position, eRoot.Position)
+
+            -- 敌方布娃娃：撤退
+            if enemyIsRagdoll then
+                stopAttacking()
+                local fleeDir = -eDir
+                pcall(function()
+                    mRoot.CFrame = CFrame.lookAt(mRoot.Position, mRoot.Position + fleeDir)
+                end)
+                humanoid:Move(eDist < CFG.fleeDist and fleeDir or Vector3.zero, false)
+                setStatus(string.format(
+                    "状态: ⚔ 战斗中\n敌方: %s | %.1fm | 布娃娃↩",
+                    currentEnemy.Name, eDist), Color3.fromRGB(255, 180, 50))
+                return
+            end
+
+            -- 追击敌方
+            if eDist > CFG.combatFollowDist then
+                pcall(function()
+                    mRoot.CFrame = CFrame.lookAt(mRoot.Position,
+                        Vector3.new(eRoot.Position.X, mRoot.Position.Y, eRoot.Position.Z))
+                end)
+                humanoid:Move(eDir, false)
+            else
+                humanoid:Move(Vector3.zero, false)
+            end
+
+            -- 冲刺
+            if eDist <= CFG.combatDashRange and now - lastDashTime >= CFG.dashDebounce then
+                performDash(); lastDashTime = now
+            end
+
+            -- 攻击 + 侧闪
+            if eDist <= CFG.attackRange then
+                attackLoop()
+                performSideDash()
+            else
+                stopAttacking()
+            end
+
+            setStatus(string.format(
+                "状态: ⚔ 战斗中\n敌方: %s | %.1fm",
+                currentEnemy.Name, eDist), Color3.fromRGB(255, 120, 80))
+        end
+    end)
+end
+
+-- ══════════════════════════════════════
+--  本地死亡/重生
+-- ══════════════════════════════════════
+local function onLocalDeath()
+    disconnectAll(); stopAttacking()
+    setStatus("状态: 💫 重生中...", Color3.fromRGB(160, 160, 160))
+    if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
+    localDiedConn = LP.CharacterAdded:Connect(function(newChar)
+        if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
+        character = newChar
+        humanoid  = newChar:WaitForChild("Humanoid")
+        localDiedConn = humanoid.Died:Connect(onLocalDeath)
+        task.wait(1)
+        guardAndCombat()
+    end)
+end
+
+-- ══════════════════════════════════════
+--  GUI 构建
+-- ══════════════════════════════════════
+local function createGUI()
+    local exist = LP.PlayerGui:FindFirstChild("AutoBattleGUI")
+    if exist then exist:Destroy() end
+
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "AutoBattleGUI"; sg.ResetOnSpawn = false
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; sg.Parent = LP.PlayerGui
+
+    local panel = Instance.new("Frame")
+    panel.Name="Panel"; panel.Size=UDim2.new(0,240,0,320)
+    panel.Position=UDim2.new(0,20,0.5,-160)
+    panel.BackgroundColor3=Color3.fromRGB(15,15,20)
+    panel.BorderSizePixel=0; panel.Active=true; panel.Draggable=true; panel.Parent=sg
+    do local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,10); c.Parent=panel end
+    do local s=Instance.new("UIStroke"); s.Color=Color3.fromRGB(80,160,255); s.Thickness=1.5; s.Parent=panel end
+
+    -- 标题栏
+    local tBar=Instance.new("Frame")
+    tBar.Size=UDim2.new(1,0,0,36); tBar.BackgroundColor3=Color3.fromRGB(25,80,180)
+    tBar.BorderSizePixel=0; tBar.Parent=panel
+    do local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,10); c.Parent=tBar end
+    do local f=Instance.new("Frame"); f.Size=UDim2.new(1,0,0,10); f.Position=UDim2.new(0,0,1,-10)
+       f.BackgroundColor3=Color3.fromRGB(25,80,180); f.BorderSizePixel=0; f.Parent=tBar end
+
+    local tLbl=Instance.new("TextLabel")
+    tLbl.Size=UDim2.new(1,-44,1,0); tLbl.Position=UDim2.new(0,10,0,0)
+    tLbl.BackgroundTransparency=1; tLbl.Text="🛡  AutoBattle v3.1  守卫"
+    tLbl.TextColor3=Color3.fromRGB(255,255,255); tLbl.TextSize=13
+    tLbl.Font=Enum.Font.GothamBold; tLbl.TextXAlignment=Enum.TextXAlignment.Left; tLbl.Parent=tBar
+
+    local colBtn=Instance.new("TextButton")
+    colBtn.Size=UDim2.new(0,28,0,28); colBtn.Position=UDim2.new(1,-32,0,4)
+    colBtn.BackgroundColor3=Color3.fromRGB(50,50,70); colBtn.Text="─"
+    colBtn.TextColor3=Color3.fromRGB(200,200,200); colBtn.TextSize=14
+    colBtn.Font=Enum.Font.GothamBold; colBtn.BorderSizePixel=0; colBtn.Parent=tBar
+    do local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,6); c.Parent=colBtn end
+
+    -- 内容区
+    local content=Instance.new("Frame")
+    content.Name="Content"; content.Size=UDim2.new(1,0,1,-36)
+    content.Position=UDim2.new(0,0,0,36); content.BackgroundTransparency=1; content.Parent=panel
+    do local l=Instance.new("UIListLayout"); l.FillDirection=Enum.FillDirection.Vertical
+       l.Padding=UDim.new(0,7); l.Parent=content end
+    do local p=Instance.new("UIPadding"); p.PaddingTop=UDim.new(0,10)
+       p.PaddingLeft=UDim.new(0,12); p.PaddingRight=UDim.new(0,12); p.Parent=content end
+
+    local function mkLabel(text, h)
+        local l=Instance.new("TextLabel")
+        l.Size=UDim2.new(1,0,0,h or 14); l.BackgroundTransparency=1; l.Text=text
+        l.TextColor3=Color3.fromRGB(160,180,220); l.TextSize=12; l.Font=Enum.Font.Gotham
+        l.TextXAlignment=Enum.TextXAlignment.Left; l.Parent=content
+        return l
+    end
+
+    local function mkToggle(label, defaultOn, cb)
+        local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,28)
+        row.BackgroundTransparency=1; row.Parent=content
+        local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(0.65,0,1,0)
+        lbl.BackgroundTransparency=1; lbl.Text=label
+        lbl.TextColor3=Color3.fromRGB(210,215,230); lbl.TextSize=13
+        lbl.Font=Enum.Font.Gotham; lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.Parent=row
+        local btn=Instance.new("TextButton"); btn.Size=UDim2.new(0,52,0,24)
+        btn.Position=UDim2.new(1,-52,0.5,-12); btn.BorderSizePixel=0; btn.Text=""; btn.Parent=row
+        do local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(1,0); c.Parent=btn end
+        local knob=Instance.new("Frame"); knob.Size=UDim2.new(0,18,0,18)
+        knob.BackgroundColor3=Color3.fromRGB(255,255,255); knob.BorderSizePixel=0; knob.Parent=btn
+        do local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(1,0); c.Parent=knob end
+        local on=defaultOn
+        local function refresh()
+            btn.BackgroundColor3 = on and Color3.fromRGB(60,180,100) or Color3.fromRGB(70,70,90)
+            TweenSvc:Create(knob, TweenInfo.new(0.15,Enum.EasingStyle.Quad),{
+                Position = on and UDim2.new(1,-21,0.5,-9) or UDim2.new(0,3,0.5,-9)
+            }):Play()
+        end
+        refresh()
+        btn.MouseButton1Click:Connect(function() on=not on; refresh(); cb(on) end)
+    end
+
+    -- 状态框
+    statusLabel=Instance.new("TextLabel")
+    statusLabel.Size=UDim2.new(1,0,0,48); statusLabel.BackgroundColor3=Color3.fromRGB(22,22,32)
+    statusLabel.TextColor3=Color3.fromRGB(120,220,160); statusLabel.TextSize=12
+    statusLabel.Font=Enum.Font.Gotham; statusLabel.Text="状态: 启动中..."
+    statusLabel.TextXAlignment=Enum.TextXAlignment.Left; statusLabel.TextWrapped=true
+    statusLabel.BorderSizePixel=0; statusLabel.Parent=content
+    do local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,6); c.Parent=statusLabel end
+    do local p=Instance.new("UIPadding"); p.PaddingLeft=UDim.new(0,8); p.PaddingTop=UDim.new(0,4); p.Parent=statusLabel end
+
+    -- 分割线
+    do local d=Instance.new("Frame"); d.Size=UDim2.new(1,0,0,1)
+       d.BackgroundColor3=Color3.fromRGB(50,55,80); d.BorderSizePixel=0; d.Parent=content end
+
+    -- 开关
+    mkToggle("🛡  守卫开关", true, function(on)
+        trackEnabled = on
+        if on then
+            guardAndCombat()
+        else
+            disconnectAll(); stopAttacking()
+            setStatus("状态: ⏸ 已暂停", Color3.fromRGB(160,160,160))
+        end
+    end)
+
+    -- 指示行
+    modeLabel    = mkLabel("模式: 守卫", 14)
+    enemyLabel   = mkLabel("敌方: 无", 14)
+    ragdollLabel = mkLabel("🪆 布娃娃: 正常", 14)
+    tpLabel      = mkLabel("🌀 瞬移: 待机", 14)
+    cdLabel      = mkLabel("技能冷却: 就绪 ✔", 14)
+
+    RunService.Heartbeat:Connect(function()
+        if modeLabel then
+            if isStandby then
+                modeLabel.Text      = "模式: 🌑 地下待机"
+                modeLabel.TextColor3= Color3.fromRGB(130, 100, 200)
+            elseif mode == "guard" then
+                modeLabel.Text      = "模式: 🛡 守卫跟随"
+                modeLabel.TextColor3= Color3.fromRGB(100, 200, 255)
+            else
+                modeLabel.Text      = "模式: ⚔ 战斗中"
+                modeLabel.TextColor3= Color3.fromRGB(255, 120, 80)
+            end
+        end
+        if enemyLabel then
+            if currentEnemy then
+                enemyLabel.Text      = "敌方: " .. currentEnemy.Name
+                enemyLabel.TextColor3= Color3.fromRGB(255, 160, 80)
+            else
+                enemyLabel.Text      = "敌方: 无"
+                enemyLabel.TextColor3= Color3.fromRGB(120, 140, 180)
+            end
+        end
+        if ragdollLabel then
+            ragdollLabel.Text      = enemyIsRagdoll and "🪆 布娃娃: ⚠ 敌方倒地" or "🪆 布娃娃: 正常"
+            ragdollLabel.TextColor3= enemyIsRagdoll and Color3.fromRGB(255,180,50) or Color3.fromRGB(100,220,140)
+        end
+        if tpLabel then
+            tpLabel.Text      = tpDetected and "🌀 瞬移: 已触发！" or "🌀 瞬移: 待机"
+            tpLabel.TextColor3= tpDetected and Color3.fromRGB(160,120,255) or Color3.fromRGB(120,140,180)
+        end
+        if cdLabel then
+            local rem = CFG.skillCD - (tick() - lastSkillTime)
+            if rem > 0 then
+                cdLabel.Text      = string.format("技能冷却: %.1fs", rem)
+                cdLabel.TextColor3= Color3.fromRGB(255,160,80)
+            else
+                cdLabel.Text      = "技能冷却: 就绪 ✔"
+                cdLabel.TextColor3= Color3.fromRGB(100,220,140)
+            end
+        end
+    end)
+
+    -- 收起/展开
+    local collapsed = false
+    colBtn.MouseButton1Click:Connect(function()
+        collapsed = not collapsed
+        TweenSvc:Create(panel, TweenInfo.new(0.2,Enum.EasingStyle.Quad),{
+            Size = collapsed and UDim2.new(0,240,0,36) or UDim2.new(0,240,0,320)
+        }):Play()
+        content.Visible = not collapsed
+        colBtn.Text = collapsed and "□" or "─"
+    end)
+end
+
+-- ══════════════════════════════════════
+--  启动
+-- ══════════════════════════════════════
+createGUI()
+localDiedConn = humanoid.Died:Connect(onLocalDeath)
+guardAndCombat()
