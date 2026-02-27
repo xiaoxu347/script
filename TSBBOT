@@ -17,8 +17,11 @@ local CFG = {
     masterName        = "yaoshen21",    -- 主人玩家名（平时跟随，不攻击）
     whitelist         = {               -- 白名单：这些玩家不会被追击（填用户名）
         "yaoshen21",                   -- 主人自动在白名单内（可留可删）
-        -- "PlayerB",
-        -- "PlayerC",
+        "yaoshen05",
+        "yaoshen2",
+        "yaoshen61",
+        "yaoshen8",
+        "zXimpy0",
     },
     guardRadius       = 80,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
     masterFollowDist  = 10,              -- 跟随主人时保持的距离(米)
