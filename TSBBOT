@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════╗
--- ║           AutoBattle Script  v3.1  守卫模式          ║
--- ║  平时跟随主人 · 自动识别威胁 · 地下待机 · 瞬移         ║
+-- ║           AutoBattle Script  v3.0  守卫模式          ║
+-- ║  平时跟随主人 · 自动识别威胁 · 动画反制 · 瞬移         ║
 -- ╚══════════════════════════════════════════════════════╝
 
 local Players    = game:GetService("Players")
@@ -26,9 +26,12 @@ local CFG = {
     dashDebounce      = 0.5,            -- 冲刺间隔(秒)
 
     -- 战斗参数
-    skillQueue        = { "Normal Punch", "Consecutive Punches", "Shove" ,"Uppercut"},
+    skillQueue        = { "Flowing Water", "Lethal Whirlwind Stream", "Hunter's Grasp" },
+    preySkillName     = "Prey's Peril",
+    preyAnimId        = "15290930205",  -- 触发反制的敌方动画ID
     teleportAnimId    = "10470389827",  -- 触发瞬移的自身动画ID
     teleportDist      = 4,              -- 瞬移到敌方背后距离(米)
+    preyCD            = 1.5,            -- 反制技能冷却(秒)
     skillCD           = 3,              -- 普通技能冷却(秒)
     attackRange       = 7,              -- 攻击距离(米)
     combatFollowDist  = 4,              -- 战斗时跟随敌方距离(米)
@@ -39,7 +42,6 @@ local CFG = {
     sideDashDuration  = 0.2,            -- 侧闪持续(秒)
     fleeDist          = 15,             -- 敌方布娃娃时撤退距离(米)
     threatCheckRate   = 0.5,            -- 威胁扫描间隔(秒)，不要太频繁
-    standbyDepth      = -50,            -- 待机时沉入地下的Y坐标(负数=地下)
 }
 
 -- ══════════════════════════════════════
@@ -64,10 +66,12 @@ local currentEnemy    = nil   -- 当前锁定的敌方Player对象
 local currentEnemyChar= nil   -- 敌方Character
 local isAttacking     = false
 local enemyIsRagdoll  = false
+local preyDetected    = false
 local tpDetected      = false
 local trackEnabled    = true
 
 local lastSkillTime   = 0
+local lastPreyTime    = 0
 local lastDashTime    = 0
 local lastSideDash    = 0
 local lastThreatCheck = 0
@@ -77,8 +81,8 @@ local skillIdx        = 1
 local CONN = {}
 local localDiedConn = nil
 
--- 地下待机状态
-local isStandby         = false   -- true = 待机中，暂停所有跟随
+-- 悬浮待机状态
+local isStandby         = false   -- true = 悬浮待机中，暂停所有跟随
 local standbyAnchor     = nil     -- 待机时锁定的地下位置(Vector3)
 
 -- 主人动画双击检测
@@ -95,7 +99,7 @@ local function disconnectAll()
 end
 
 -- GUI标签（提前声明）
-local statusLabel, modeLabel, enemyLabel, ragdollLabel, tpLabel, cdLabel
+local statusLabel, modeLabel, enemyLabel, ragdollLabel, preyLabel, tpLabel, cdLabel
 
 local function setStatus(text, color)
     if not statusLabel then return end
@@ -141,6 +145,20 @@ local function performSkill(name)
     if not tool then return end
     fireServer({ { Tool = tool, Goal = "Console Move" } })
     lastSkillTime = now
+end
+
+local function performPreySkill()
+    local now = tick()
+    if now - lastPreyTime < CFG.preyCD then return end
+    local tool = LP.Backpack:FindFirstChild(CFG.preySkillName)
+    if not tool then return end
+    fireServer({ { Tool = tool, Goal = "Console Move" } })
+    lastPreyTime = now
+    task.spawn(function()
+        setStatus("⚡ 反制触发: " .. CFG.preySkillName, Color3.fromRGB(255, 220, 60))
+        task.wait(0.8)
+        if statusLabel then statusLabel.TextColor3 = Color3.fromRGB(120, 220, 160) end
+    end)
 end
 
 local function stopAttacking()
@@ -229,12 +247,14 @@ local function enterGuardMode()
     currentEnemy     = nil
     currentEnemyChar = nil
     enemyIsRagdoll   = false
+    preyDetected     = false
     stopAttacking()
 
-    -- 清除敌方相关连接
+    -- 清除敌方相关连接（保留master和自身连接）
     if CONN.enemyDied    then CONN.enemyDied:Disconnect();    CONN.enemyDied    = nil end
     if CONN.enemyRagdoll then CONN.enemyRagdoll:Disconnect(); CONN.enemyRagdoll = nil end
     if CONN.enemyState   then CONN.enemyState:Disconnect();   CONN.enemyState   = nil end
+    if CONN.preyAnim     then CONN.preyAnim:Disconnect();     CONN.preyAnim     = nil end
 end
 
 -- ══════════════════════════════════════
@@ -246,12 +266,14 @@ local function enterCombatMode(enemyPlayer)
     currentEnemy     = enemyPlayer
     currentEnemyChar = enemyPlayer.Character
     enemyIsRagdoll   = false
+    preyDetected     = false
     stopAttacking()
 
     -- 清旧敌方连接
     if CONN.enemyDied    then CONN.enemyDied:Disconnect()    end
     if CONN.enemyRagdoll then CONN.enemyRagdoll:Disconnect() end
     if CONN.enemyState   then CONN.enemyState:Disconnect()   end
+    if CONN.preyAnim     then CONN.preyAnim:Disconnect()     end
 
     local eHum = currentEnemyChar and currentEnemyChar:FindFirstChild("Humanoid")
     if not eHum then return end
@@ -282,6 +304,26 @@ local function enterCombatMode(enemyPlayer)
             enemyIsRagdoll = false
         end
     end)
+
+    -- 敌方动画反制（Prey's Peril）
+    local eAnimator = eHum:FindFirstChildOfClass("Animator")
+    if eAnimator then
+        CONN.preyAnim = RunService.Heartbeat:Connect(function()
+            if mode ~= "combat" or not trackEnabled then return end
+            local mRoot = character  and character:FindFirstChild("HumanoidRootPart")
+            local eRoot = currentEnemyChar and currentEnemyChar:FindFirstChild("HumanoidRootPart")
+            if not mRoot or not eRoot then return end
+            if (eRoot.Position - mRoot.Position).Magnitude > CFG.attackRange then
+                preyDetected = false; return
+            end
+            local found = animHasId(eAnimator, CFG.preyAnimId)
+            if found and not preyDetected then
+                preyDetected = true; performPreySkill()
+            elseif not found then
+                preyDetected = false
+            end
+        end)
+    end
 end
 
 -- ══════════════════════════════════════
@@ -296,6 +338,7 @@ guardAndCombat = function()
     currentEnemy     = nil
     currentEnemyChar = nil
     enemyIsRagdoll   = false
+    preyDetected     = false
     tpDetected       = false
     -- 待机状态重置（重生后解除待机）
     if isStandby then
@@ -350,7 +393,7 @@ guardAndCombat = function()
         end)
     end
 
-    -- 主人动画双击检测：2秒内连续两次 teleportAnimId → 切换地下待机/恢复
+    -- 主人动画双击检测：2秒内连续两次 teleportAnimId → 切换悬浮待机/恢复
     local mAnimator = masterHumanoid:FindFirstChildOfClass("Animator")
     if mAnimator then
         CONN.masterAnim = RunService.Heartbeat:Connect(function()
@@ -369,19 +412,19 @@ guardAndCombat = function()
                     masterAnimTimer = 0
                     -- 切换待机状态
                     if not isStandby then
-                        -- 进入待机：传送到地下锚定位置
+                        -- 进入待机：传送到地下隐藏
                         local mRoot = character and character:FindFirstChild("HumanoidRootPart")
                         if mRoot then
-                            -- 保留XZ位置，Y设为地下深度
-                            standbyAnchor = Vector3.new(mRoot.Position.X, CFG.standbyDepth, mRoot.Position.Z)
+                            standbyAnchor = mRoot.Position + Vector3.new(0, -100, 0)
                             isStandby = true
                             stopAttacking()
+                            -- 关闭重力，让角色悬浮
                             pcall(function()
                                 humanoid.PlatformStand = true
                                 mRoot.CFrame = CFrame.new(standbyAnchor)
                                 mRoot.Velocity = Vector3.zero
                             end)
-                            setStatus("状态: 🌑 地下待机中", Color3.fromRGB(130, 100, 200))
+                            setStatus("状态: 🌙 悬浮待机中", Color3.fromRGB(180, 130, 255))
                         end
                     else
                         -- 退出待机：传送回主人身边，恢复跟随
@@ -419,7 +462,7 @@ guardAndCombat = function()
         local mRoot = character and character:FindFirstChild("HumanoidRootPart")
         if not mRoot then return end
 
-        -- ── 地下待机：锚定地下位置，不做任何跟随/战斗 ──
+        -- ── 悬浮待机：锚定位置，不做任何跟随/战斗 ──
         if isStandby then
             stopAttacking()
             if standbyAnchor then
@@ -541,13 +584,15 @@ end
 local function onLocalDeath()
     disconnectAll(); stopAttacking()
     setStatus("状态: 💫 重生中...", Color3.fromRGB(160, 160, 160))
+    -- 不用 :Wait()，改用事件监听，避免角色已加载时永远挂起
     if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
     localDiedConn = LP.CharacterAdded:Connect(function(newChar)
         if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
         character = newChar
         humanoid  = newChar:WaitForChild("Humanoid")
+        -- 绑定下一次死亡
         localDiedConn = humanoid.Died:Connect(onLocalDeath)
-        task.wait(1)
+        task.wait(1)  -- 等角色物理完全加载
         guardAndCombat()
     end)
 end
@@ -564,8 +609,8 @@ local function createGUI()
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; sg.Parent = LP.PlayerGui
 
     local panel = Instance.new("Frame")
-    panel.Name="Panel"; panel.Size=UDim2.new(0,240,0,320)
-    panel.Position=UDim2.new(0,20,0.5,-160)
+    panel.Name="Panel"; panel.Size=UDim2.new(0,240,0,360)
+    panel.Position=UDim2.new(0,20,0.5,-180)
     panel.BackgroundColor3=Color3.fromRGB(15,15,20)
     panel.BorderSizePixel=0; panel.Active=true; panel.Draggable=true; panel.Parent=sg
     do local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,10); c.Parent=panel end
@@ -581,7 +626,7 @@ local function createGUI()
 
     local tLbl=Instance.new("TextLabel")
     tLbl.Size=UDim2.new(1,-44,1,0); tLbl.Position=UDim2.new(0,10,0,0)
-    tLbl.BackgroundTransparency=1; tLbl.Text="🛡  AutoBattle v3.1  守卫"
+    tLbl.BackgroundTransparency=1; tLbl.Text="🛡  AutoBattle v3.0  守卫"
     tLbl.TextColor3=Color3.fromRGB(255,255,255); tLbl.TextSize=13
     tLbl.Font=Enum.Font.GothamBold; tLbl.TextXAlignment=Enum.TextXAlignment.Left; tLbl.Parent=tBar
 
@@ -662,14 +707,15 @@ local function createGUI()
     modeLabel    = mkLabel("模式: 守卫", 14)
     enemyLabel   = mkLabel("敌方: 无", 14)
     ragdollLabel = mkLabel("🪆 布娃娃: 正常", 14)
+    preyLabel    = mkLabel("⚡ 动画反制: 待机", 14)
     tpLabel      = mkLabel("🌀 瞬移: 待机", 14)
     cdLabel      = mkLabel("技能冷却: 就绪 ✔", 14)
 
     RunService.Heartbeat:Connect(function()
         if modeLabel then
             if isStandby then
-                modeLabel.Text      = "模式: 🌑 地下待机"
-                modeLabel.TextColor3= Color3.fromRGB(130, 100, 200)
+                modeLabel.Text      = "模式: 🌙 悬浮待机"
+                modeLabel.TextColor3= Color3.fromRGB(180, 130, 255)
             elseif mode == "guard" then
                 modeLabel.Text      = "模式: 🛡 守卫跟随"
                 modeLabel.TextColor3= Color3.fromRGB(100, 200, 255)
@@ -690,6 +736,10 @@ local function createGUI()
         if ragdollLabel then
             ragdollLabel.Text      = enemyIsRagdoll and "🪆 布娃娃: ⚠ 敌方倒地" or "🪆 布娃娃: 正常"
             ragdollLabel.TextColor3= enemyIsRagdoll and Color3.fromRGB(255,180,50) or Color3.fromRGB(100,220,140)
+        end
+        if preyLabel then
+            preyLabel.Text      = preyDetected and "⚡ 动画反制: 触发！" or "⚡ 动画反制: 待机"
+            preyLabel.TextColor3= preyDetected and Color3.fromRGB(255,220,60) or Color3.fromRGB(120,140,180)
         end
         if tpLabel then
             tpLabel.Text      = tpDetected and "🌀 瞬移: 已触发！" or "🌀 瞬移: 待机"
@@ -712,7 +762,7 @@ local function createGUI()
     colBtn.MouseButton1Click:Connect(function()
         collapsed = not collapsed
         TweenSvc:Create(panel, TweenInfo.new(0.2,Enum.EasingStyle.Quad),{
-            Size = collapsed and UDim2.new(0,240,0,36) or UDim2.new(0,240,0,320)
+            Size = collapsed and UDim2.new(0,240,0,36) or UDim2.new(0,240,0,360)
         }):Play()
         content.Visible = not collapsed
         colBtn.Text = collapsed and "□" or "─"
