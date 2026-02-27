@@ -24,7 +24,7 @@ local CFG = {
         "zXimpy0",
     },
     guardRadius       = 80,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
-    masterFollowDist  = 10,              -- 跟随主人时保持的距离(米)
+    masterFollowDist  = 8,              -- 跟随主人时保持的距离(米)
     masterDashRange   = 35,             -- 跟随时冲刺触发距离(米)
     dashDebounce      = 0.5,            -- 冲刺间隔(秒)
 
@@ -363,10 +363,17 @@ guardAndCombat = function()
     local masterChar     = masterPlayer.Character or masterPlayer.CharacterAdded:Wait()
     local masterHumanoid = masterChar:WaitForChild("Humanoid")
 
-    -- 主人死亡
+    -- 主人死亡（只清战斗相关连接，保留masterRespawn）
     CONN.masterDied = masterHumanoid.Died:Connect(function()
-        disconnectAll(); stopAttacking()
-        setStatus("状态: 💀 主人死亡", Color3.fromRGB(200, 80, 80))
+        -- 单独清除除 masterRespawn 以外的所有连接
+        for k, c in pairs(CONN) do
+            if k ~= "masterRespawn" then
+                if c then pcall(function() c:Disconnect() end) end
+                CONN[k] = nil
+            end
+        end
+        stopAttacking()
+        setStatus("状态: 💀 主人死亡，等待复活...", Color3.fromRGB(200, 80, 80))
     end)
 
     -- 主人重生
