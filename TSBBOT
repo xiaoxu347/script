@@ -24,7 +24,7 @@ local CFG = {
         "zXimpy0",
     },
     guardRadius       = 80,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
-    masterFollowDist  = 8,              -- 跟随主人时保持的距离(米)
+    masterFollowDist  = 10,              -- 跟随主人时保持的距离(米)
     masterDashRange   = 35,             -- 跟随时冲刺触发距离(米)
     dashDebounce      = 0.5,            -- 冲刺间隔(秒)
 
@@ -345,9 +345,13 @@ guardAndCombat = function()
     tpDetected       = false
     -- 待机状态重置（重生后解除待机）
     if isStandby then
-        isStandby   = false
+        isStandby     = false
         standbyAnchor = nil
-        pcall(function() if humanoid then humanoid.PlatformStand = false end end)
+        pcall(function()
+            if humanoid then humanoid.PlatformStand = false end
+            local mRoot = character and character:FindFirstChild("HumanoidRootPart")
+            if mRoot then mRoot.Anchored = false end
+        end)
     end
     masterAnimCount    = 0
     masterAnimTimer    = 0
@@ -403,48 +407,78 @@ guardAndCombat = function()
         end)
     end
 
-    -- 主人动画双击检测：2秒内连续两次 teleportAnimId → 切换悬浮待机/恢复
+    -- 主人动画三击检测：
+    --   2秒内连续 2次 → 切换待机/恢复
+    --   2秒内连续 3次 → 强制召唤自己到主人身边（无论是否待机）
     local mAnimator = masterHumanoid:FindFirstChildOfClass("Animator")
     if mAnimator then
         CONN.masterAnim = RunService.Heartbeat:Connect(function()
             local found = animHasId(mAnimator, CFG.teleportAnimId)
-            -- 边沿触发：只在动画刚开始那一帧计数
             if found and not masterAnimDetected then
                 masterAnimDetected = true
                 local now = tick()
-                if masterAnimCount == 0 then
-                    -- 第一次触发，开始计时
-                    masterAnimCount = 1
-                    masterAnimTimer = now
-                elseif now - masterAnimTimer <= masterAnimWindow then
-                    -- 第二次触发，且在时间窗口内
+
+                -- 超出时间窗口，重置为第一次
+                if masterAnimCount > 0 and (now - masterAnimTimer) > masterAnimWindow then
+                    masterAnimCount = 0
+                end
+
+                masterAnimCount = masterAnimCount + 1
+                if masterAnimCount == 1 then
+                    masterAnimTimer = now  -- 开始计时
+                end
+
+                if masterAnimCount == 3 then
+                    -- ── 第三次：强制召唤到主人身边 ──
                     masterAnimCount = 0
                     masterAnimTimer = 0
-                    -- 切换待机状态
+                    local mRoot      = character and character:FindFirstChild("HumanoidRootPart")
+                    local masterRoot = masterChar and masterChar:FindFirstChild("HumanoidRootPart")
+                    if mRoot and masterRoot then
+                        -- 退出待机状态
+                        if isStandby then
+                            isStandby     = false
+                            standbyAnchor = nil
+                            pcall(function()
+                                mRoot.Anchored = false
+                                humanoid.PlatformStand = false
+                            end)
+                        end
+                        local offset = masterRoot.CFrame.RightVector * 2
+                        pcall(function()
+                            mRoot.CFrame = CFrame.new(masterRoot.Position + offset)
+                        end)
+                        setStatus("状态: 🌟 已召唤回主人身边", Color3.fromRGB(255, 220, 60))
+                    end
+
+                elseif masterAnimCount == 2 then
+                    -- ── 第二次：切换待机/恢复 ──
                     if not isStandby then
-                        -- 进入待机：传送到地下隐藏
+                        -- 进入待机：传送到地下并锚定，完全脱离物理
                         local mRoot = character and character:FindFirstChild("HumanoidRootPart")
                         if mRoot then
-                            standbyAnchor = mRoot.Position + Vector3.new(0, -100, 0)
-                            isStandby = true
+                            local underPos = mRoot.Position + Vector3.new(0, -100, 0)
+                            standbyAnchor = underPos
+                            isStandby     = true
                             stopAttacking()
-                            -- 关闭重力，让角色悬浮
                             pcall(function()
-                                humanoid.PlatformStand = true
-                                mRoot.CFrame = CFrame.new(standbyAnchor)
-                                mRoot.Velocity = Vector3.zero
+                                humanoid.PlatformStand = false
+                                mRoot.Anchored = true
+                                mRoot.CFrame   = CFrame.new(underPos)
                             end)
-                            setStatus("状态: 🌙 悬浮待机中", Color3.fromRGB(180, 130, 255))
+                            setStatus("状态: 🌙 地下待机中", Color3.fromRGB(180, 130, 255))
                         end
                     else
-                        -- 退出待机：传送回主人身边，恢复跟随
-                        isStandby = false
+                        -- 退出待机：解锁并传送回主人身边
+                        isStandby     = false
                         standbyAnchor = nil
-                        pcall(function() humanoid.PlatformStand = false end)
                         local mRoot      = character and character:FindFirstChild("HumanoidRootPart")
                         local masterRoot = masterChar and masterChar:FindFirstChild("HumanoidRootPart")
+                        pcall(function()
+                            if mRoot then mRoot.Anchored = false end
+                            humanoid.PlatformStand = false
+                        end)
                         if mRoot and masterRoot then
-                            -- 传送到主人旁边偏移2米
                             local offset = masterRoot.CFrame.RightVector * 2
                             pcall(function()
                                 mRoot.CFrame = CFrame.new(masterRoot.Position + offset)
@@ -452,11 +486,8 @@ guardAndCombat = function()
                         end
                         setStatus("状态: 🛡 恢复守卫", Color3.fromRGB(100, 200, 255))
                     end
-                else
-                    -- 超出时间窗口，重新从第一次开始计
-                    masterAnimCount = 1
-                    masterAnimTimer = now
                 end
+
             elseif not found then
                 masterAnimDetected = false
             end
@@ -472,16 +503,10 @@ guardAndCombat = function()
         local mRoot = character and character:FindFirstChild("HumanoidRootPart")
         if not mRoot then return end
 
-        -- ── 悬浮待机：锚定位置，不做任何跟随/战斗 ──
+        -- ── 地下待机：已Anchored锁定，只需保持CFrame不被其他逻辑干扰 ──
         if isStandby then
             stopAttacking()
-            if standbyAnchor then
-                pcall(function()
-                    humanoid.PlatformStand = true
-                    mRoot.CFrame = CFrame.new(standbyAnchor)
-                    mRoot.Velocity = Vector3.zero
-                end)
-            end
+            -- Anchored已锁定位置，无需每帧强设CFrame，直接return即可
             return
         end
 
