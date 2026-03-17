@@ -1,40 +1,38 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
- 
+
 -- Configurable variables
 local hitboxSize = 10
-local hitboxTransparency = 0.5
-local hitboxColor = Color3.fromRGB(255, 0, 0)
+local hitboxTransparency = 0.85
+local hitboxColor = Color3.fromRGB(255, 255, 255)
 local hitboxEnabled = false
- 
+
 -- GUI
 local gui = Instance.new("ScreenGui", game:GetService("CoreGui"))
- 
+
 local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.new(0, 240, 0, 270)  -- Increased height to fit two credit bars
-frame.Position = UDim2.new(0, 20, 0, 100)  -- Adjusted positioning
+frame.Size = UDim2.new(0, 240, 0, 270)
+frame.Position = UDim2.new(0, 20, 0, 100)
 frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 frame.Draggable = true
 frame.Active = true
 frame.BorderSizePixel = 0
 frame.ClipsDescendants = true
 frame.BackgroundTransparency = 0.2
- 
--- Add Rounded Corners to Entire Frame (including the top)
+
 local UICorner = Instance.new("UICorner", frame)
-UICorner.CornerRadius = UDim.new(0, 20)  -- More rounded effect for the whole UI
- 
+UICorner.CornerRadius = UDim.new(0, 20)
+
 -- Title Bar
 local titleBar = Instance.new("Frame", frame)
 titleBar.Size = UDim2.new(1, 0, 0, 30)
 titleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 titleBar.BorderSizePixel = 0
- 
--- Title Bar Gradient
+
 local titleBarGradient = Instance.new("UIGradient", titleBar)
 titleBarGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 60, 60)), ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 100, 100))})
 titleBarGradient.Rotation = 45
- 
+
 -- Minimize Button
 local minimizeButton = Instance.new("TextButton", titleBar)
 minimizeButton.Size = UDim2.new(0, 30, 0, 30)
@@ -45,20 +43,11 @@ minimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 minimizeButton.BorderSizePixel = 0
 minimizeButton.Font = Enum.Font.GothamBold
 minimizeButton.TextSize = 18
- 
--- Add Rounded Corners to Minimize Button
 local minimizeUICorner = Instance.new("UICorner", minimizeButton)
 minimizeUICorner.CornerRadius = UDim.new(0, 5)
- 
--- Hover Effects for Minimize Button
-minimizeButton.MouseEnter:Connect(function()
-	minimizeButton.BackgroundColor3 = Color3.fromRGB(0, 200, 200)  -- Lighter color on hover
-end)
- 
-minimizeButton.MouseLeave:Connect(function()
-	minimizeButton.BackgroundColor3 = Color3.fromRGB(0, 255, 255)  -- Original color
-end)
- 
+minimizeButton.MouseEnter:Connect(function() minimizeButton.BackgroundColor3 = Color3.fromRGB(0, 200, 200) end)
+minimizeButton.MouseLeave:Connect(function() minimizeButton.BackgroundColor3 = Color3.fromRGB(0, 255, 255) end)
+
 -- Close Button
 local closeButton = Instance.new("TextButton", titleBar)
 closeButton.Size = UDim2.new(0, 30, 0, 30)
@@ -69,37 +58,24 @@ closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeButton.BorderSizePixel = 0
 closeButton.Font = Enum.Font.GothamBold
 closeButton.TextSize = 18
- 
--- Add Rounded Corners to Close Button
 local closeUICorner = Instance.new("UICorner", closeButton)
 closeUICorner.CornerRadius = UDim.new(0, 5)
- 
--- Hover Effects for Close Button
-closeButton.MouseEnter:Connect(function()
-	closeButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70)  -- Lighter red on hover
-end)
- 
-closeButton.MouseLeave:Connect(function()
-	closeButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)  -- Original color
-end)
- 
+closeButton.MouseEnter:Connect(function() closeButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70) end)
+closeButton.MouseLeave:Connect(function() closeButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0) end)
+
 -- Content Frame
 local contentFrame = Instance.new("Frame", frame)
-contentFrame.Size = UDim2.new(1, 0, 1, -60)  -- Adjusted size for new credit bar
+contentFrame.Size = UDim2.new(1, 0, 1, -60)
 contentFrame.Position = UDim2.new(0, 0, 0, 30)
 contentFrame.BackgroundTransparency = 0.3
 contentFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
- 
--- Add Rounded Corners to Content Frame
 local contentUICorner = Instance.new("UICorner", contentFrame)
-contentUICorner.CornerRadius = UDim.new(0, 20)  -- Rounded corners for the content section too
- 
--- Add Gradient to Content Frame
+contentUICorner.CornerRadius = UDim.new(0, 20)
 local contentGradient = Instance.new("UIGradient", contentFrame)
 contentGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 60, 60)), ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 80, 80))})
 contentGradient.Rotation = 45
- 
--- Create TextBoxes
+
+-- TextBoxes
 local function createTextBox(placeholder, yPos)
 	local box = Instance.new("TextBox", contentFrame)
 	box.Size = UDim2.new(0, 180, 0, 25)
@@ -112,22 +88,20 @@ local function createTextBox(placeholder, yPos)
 	box.Font = Enum.Font.Gotham
 	box.TextSize = 14
 	box.TextTransparency = 0.5
- 
-	-- Add Hover Effect
-	box.MouseEnter:Connect(function()
-		box.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-	end)
-	box.MouseLeave:Connect(function()
-		box.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-	end)
- 
+	box.MouseEnter:Connect(function() box.BackgroundColor3 = Color3.fromRGB(70, 70, 70) end)
+	box.MouseLeave:Connect(function() box.BackgroundColor3 = Color3.fromRGB(50, 50, 50) end)
 	return box
 end
- 
-local SizeSlider = createTextBox("Hitbox Size (default 10)", 10)
-local TransparencySlider = createTextBox("Transparency (0 - 1)", 40)
-local ColorPicker = createTextBox("Color (e.g., red or 255,0,0)", 70)
- 
+
+local SizeSlider        = createTextBox("Hitbox Size (default 10)", 10)
+local TransparencySlider= createTextBox("Transparency (0 - 1)", 40)
+local ColorPicker       = createTextBox("Color (e.g., red or 255,0,0)", 70)
+
+local function addHoverEffect(button)
+	button.MouseEnter:Connect(function() button.BackgroundColor3 = Color3.fromRGB(70, 70, 70) end)
+	button.MouseLeave:Connect(function() button.BackgroundColor3 = Color3.fromRGB(50, 50, 50) end)
+end
+
 local ExpandButton = Instance.new("TextButton", contentFrame)
 ExpandButton.Size = UDim2.new(0, 180, 0, 30)
 ExpandButton.Position = UDim2.new(0, 10, 0, 110)
@@ -137,19 +111,8 @@ ExpandButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ExpandButton.BorderSizePixel = 0
 ExpandButton.Font = Enum.Font.GothamBold
 ExpandButton.TextSize = 16
- 
--- Add Hover Effect to Buttons
-local function addHoverEffect(button)
-	button.MouseEnter:Connect(function()
-		button.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-	end)
-	button.MouseLeave:Connect(function()
-		button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-	end)
-end
- 
 addHoverEffect(ExpandButton)
- 
+
 local ResetButton = Instance.new("TextButton", contentFrame)
 ResetButton.Size = UDim2.new(0, 180, 0, 30)
 ResetButton.Position = UDim2.new(0, 10, 0, 150)
@@ -159,23 +122,16 @@ ResetButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ResetButton.BorderSizePixel = 0
 ResetButton.Font = Enum.Font.GothamBold
 ResetButton.TextSize = 16
- 
 addHoverEffect(ResetButton)
- 
+
 -- Credit Bars
- 
--- First Credit Bar
 local creditBar1 = Instance.new("Frame", frame)
 creditBar1.Size = UDim2.new(1, 0, 0, 30)
-creditBar1.Position = UDim2.new(0, 0, 1, -60)  -- Adjusted positioning
+creditBar1.Position = UDim2.new(0, 0, 1, -60)
 creditBar1.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 creditBar1.BorderSizePixel = 0
- 
--- Add Rounded Corners to Credit Bar 1
 local creditUICorner1 = Instance.new("UICorner", creditBar1)
 creditUICorner1.CornerRadius = UDim.new(0, 15)
- 
--- Credit Text 1
 local creditText1 = Instance.new("TextLabel", creditBar1)
 creditText1.Size = UDim2.new(1, 0, 1, 0)
 creditText1.Position = UDim2.new(0, 10, 0, 0)
@@ -186,19 +142,14 @@ creditText1.Font = Enum.Font.GothamBold
 creditText1.TextSize = 14
 creditText1.TextXAlignment = Enum.TextXAlignment.Left
 creditText1.TextYAlignment = Enum.TextYAlignment.Center
- 
--- Second Credit Bar (Discord)
+
 local creditBar2 = Instance.new("Frame", frame)
 creditBar2.Size = UDim2.new(1, 0, 0, 30)
-creditBar2.Position = UDim2.new(0, 0, 1, -30)  -- Positioned below the first credit bar
+creditBar2.Position = UDim2.new(0, 0, 1, -30)
 creditBar2.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 creditBar2.BorderSizePixel = 0
- 
--- Add Rounded Corners to Credit Bar 2
 local creditUICorner2 = Instance.new("UICorner", creditBar2)
 creditUICorner2.CornerRadius = UDim.new(0, 15)
- 
--- Credit Text 2 (Discord invite)
 local creditText2 = Instance.new("TextLabel", creditBar2)
 creditText2.Size = UDim2.new(1, 0, 1, 0)
 creditText2.Position = UDim2.new(0, 10, 0, 0)
@@ -209,8 +160,8 @@ creditText2.Font = Enum.Font.GothamBold
 creditText2.TextSize = 14
 creditText2.TextXAlignment = Enum.TextXAlignment.Left
 creditText2.TextYAlignment = Enum.TextYAlignment.Center
- 
--- Functionality to minimize the frame
+
+-- Minimize / Close
 local isMinimized = false
 minimizeButton.MouseButton1Click:Connect(function()
 	if isMinimized then
@@ -227,73 +178,116 @@ minimizeButton.MouseButton1Click:Connect(function()
 		isMinimized = true
 	end
 end)
- 
--- Functionality to close the frame
-closeButton.MouseButton1Click:Connect(function()
-	gui:Destroy() -- Closes the entire GUI
-end)
- 
--- Hitbox expansion functions
+
+closeButton.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+-- ══════════════════════════════════════
+--  核心 Hitbox 逻辑
+-- ══════════════════════════════════════
+
+-- 对单个 HumanoidRootPart 应用 hitbox（含名称显示）
+local function applyToHRP(HRP)
+	HRP.Size        = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+	HRP.Transparency= hitboxTransparency
+	HRP.Material    = Enum.Material.Neon
+	HRP.Color       = hitboxColor
+
+	-- 名称 BillboardGui（避免重复创建）
+	if HRP:FindFirstChild("HitboxNameBillboard") then return end
+	local playerName = ""
+	for _, p in pairs(Players:GetPlayers()) do
+		if p.Character and p.Character:FindFirstChild("HumanoidRootPart") == HRP then
+			playerName = p.Name
+			break
+		end
+	end
+
+	local billboard = Instance.new("BillboardGui", HRP)
+	billboard.Name            = "HitboxNameBillboard"
+	billboard.Size            = UDim2.new(0, 120, 0, 30)
+	billboard.StudsOffset     = Vector3.new(0, hitboxSize / 2 + 1, 0)
+	billboard.AlwaysOnTop     = true
+	billboard.LightInfluence  = 0
+
+	local nameLabel = Instance.new("TextLabel", billboard)
+	nameLabel.Size             = UDim2.new(1, 0, 1, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text             = playerName
+	nameLabel.TextColor3       = Color3.fromRGB(255, 255, 255)
+	nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	nameLabel.TextStrokeTransparency = 0.4
+	nameLabel.Font             = Enum.Font.GothamBold
+	nameLabel.TextSize         = 14
+	nameLabel.TextScaled       = false
+end
+
+-- 对单个角色监听（角色已存在时直接处理，同时绑定该玩家的后续重生）
+local function hookPlayer(player)
+	if player == LocalPlayer then return end
+
+	-- 处理已有角色
+	if hitboxEnabled and player.Character then
+		local HRP = player.Character:FindFirstChild("HumanoidRootPart")
+		if HRP then applyToHRP(HRP) end
+	end
+
+	-- 绑定该玩家每次重生后自动应用
+	player.CharacterAdded:Connect(function(character)
+		if not hitboxEnabled then return end
+		-- 等 HRP 加载完毕
+		local HRP = character:WaitForChild("HumanoidRootPart", 5)
+		if HRP then applyToHRP(HRP) end
+	end)
+end
+
 local function ExpandHitboxes()
 	hitboxEnabled = true
+	-- 对当前所有玩家立即生效
 	for _, player in pairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		if player ~= LocalPlayer and player.Character then
 			local HRP = player.Character:FindFirstChild("HumanoidRootPart")
-			HRP.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-			HRP.Transparency = hitboxTransparency
-			HRP.Material = Enum.Material.Neon
-			HRP.Color = hitboxColor
+			if HRP then applyToHRP(HRP) end
 		end
 	end
 end
- 
+
 local function ResetHitboxes()
 	hitboxEnabled = false
 	for _, player in pairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		if player ~= LocalPlayer and player.Character then
 			local HRP = player.Character:FindFirstChild("HumanoidRootPart")
-			HRP.Size = Vector3.new(2, 2, 1)
-			HRP.Transparency = 0
-			HRP.Material = Enum.Material.Plastic
+			if HRP then
+				HRP.Size        = Vector3.new(2, 2, 1)
+				HRP.Transparency= 0
+				HRP.Material    = Enum.Material.Plastic
+				local bb = HRP:FindFirstChild("HitboxNameBillboard")
+				if bb then bb:Destroy() end
+			end
 		end
 	end
 end
- 
-local function ApplyHitbox(player)
-	if player ~= LocalPlayer then
-		player.CharacterAdded:Connect(function(character)
-			local HRP = character:WaitForChild("HumanoidRootPart", 5)
-			if HRP and hitboxEnabled then
-				HRP.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-				HRP.Transparency = hitboxTransparency
-				HRP.Material = Enum.Material.Neon
-				HRP.Color = hitboxColor
-			end
-		end)
-	end
-end
- 
--- Color name shortcuts
+
+-- Color presets
 local colorPresets = {
-	red = Color3.fromRGB(255, 0, 0),
-	blue = Color3.fromRGB(0, 0, 255),
-	green = Color3.fromRGB(0, 255, 0),
+	red    = Color3.fromRGB(255, 0,   0),
+	blue   = Color3.fromRGB(0,   0,   255),
+	green  = Color3.fromRGB(0,   255, 0),
 	yellow = Color3.fromRGB(255, 255, 0),
 	orange = Color3.fromRGB(255, 165, 0),
-	purple = Color3.fromRGB(128, 0, 128),
-	pink = Color3.fromRGB(255, 105, 180),
-	white = Color3.fromRGB(255, 255, 255),
-	black = Color3.fromRGB(0, 0, 0),
+	purple = Color3.fromRGB(128, 0,   128),
+	pink   = Color3.fromRGB(255, 105, 180),
+	white  = Color3.fromRGB(255, 255, 255),
+	black  = Color3.fromRGB(0,   0,   0),
 }
- 
+
 ExpandButton.MouseButton1Click:Connect(function()
 	local s = tonumber(SizeSlider.Text)
 	local t = tonumber(TransparencySlider.Text)
 	local colorText = string.lower(ColorPicker.Text)
- 
+
 	if s then hitboxSize = s end
 	if t and t >= 0 and t <= 1 then hitboxTransparency = t end
- 
+
 	if colorPresets[colorText] then
 		hitboxColor = colorPresets[colorText]
 	else
@@ -301,17 +295,21 @@ ExpandButton.MouseButton1Click:Connect(function()
 		if r and g and b then
 			r, g, b = tonumber(r), tonumber(g), tonumber(b)
 			if r and g and b then
-				hitboxColor = Color3.fromRGB(r, g, b)
-			end
+				hitboxColor = Color3.fromRGB(r, g, b) end
 		end
 	end
- 
+
 	ExpandHitboxes()
 end)
- 
+
 ResetButton.MouseButton1Click:Connect(ResetHitboxes)
- 
--- Apply hitboxes to all current players
+
+-- ── 监听已有玩家（绑定重生事件）──
 for _, player in pairs(Players:GetPlayers()) do
-	ApplyHitbox(player)
+	hookPlayer(player)
 end
+
+-- ── 监听新加入的玩家 ── （修复：新玩家进服后 hitbox 自动生效）
+Players.PlayerAdded:Connect(function(player)
+	hookPlayer(player)
+end)
