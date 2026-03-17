@@ -1,0 +1,256 @@
+-- ============================================
+-- 幽灵系统 · 穿墙脚本 (NoClip)
+-- GUI按钮 + 键盘快捷键切换
+-- 放入 StarterPlayer → StarterPlayerScripts
+-- ============================================
+
+local Players          = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ============================================
+-- 配置
+-- ============================================
+local CONFIG = {
+    TOGGLE_KEY = Enum.KeyCode.G,   -- 快捷键
+}
+
+-- ============================================
+-- 状态
+-- ============================================
+local ghostEnabled = false
+local noclipConn   = nil   -- RenderStepped 连接，持续关闭碰撞
+
+-- ============================================
+-- 穿墙核心：每帧把角色所有 BasePart 的
+-- CanCollide 设为 false，退出时还原
+-- ============================================
+local function startNoclip()
+    if noclipConn then return end
+    noclipConn = RunService.Stepped:Connect(function()
+        local char = player.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+local function stopNoclip()
+    if noclipConn then
+        noclipConn:Disconnect()
+        noclipConn = nil
+    end
+    -- 还原角色碰撞
+    local char = player.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = true
+        end
+    end
+    -- HumanoidRootPart 本身通常是 false，保持原样
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.CanCollide = false end
+end
+
+-- ============================================
+-- 切换
+-- ============================================
+local statusLabel  -- 前向声明，GUI 创建后赋值
+local toggleBtn
+
+local function setGhost(enabled)
+    ghostEnabled = enabled
+    if enabled then
+        startNoclip()
+    else
+        stopNoclip()
+    end
+    -- 更新 GUI
+    if toggleBtn then
+        if enabled then
+            toggleBtn.Text             = "👻 幽灵模式：开"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 160)
+        else
+            toggleBtn.Text             = "👻 幽灵模式：关"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 70)
+        end
+    end
+    if statusLabel then
+        if enabled then
+            statusLabel.Text      = "● 幽灵已激活  [" .. CONFIG.TOGGLE_KEY.Name .. "]"
+            statusLabel.TextColor3 = Color3.fromRGB(180, 100, 255)
+        else
+            statusLabel.Text      = "○ 幽灵已关闭  [" .. CONFIG.TOGGLE_KEY.Name .. "]"
+            statusLabel.TextColor3 = Color3.fromRGB(140, 140, 180)
+        end
+    end
+end
+
+-- 角色重生后自动重新应用状态
+local function onCharacterAdded(char)
+    -- 等角色完全加载
+    char:WaitForChild("HumanoidRootPart")
+    task.wait(0.1)
+    if ghostEnabled then
+        startNoclip()
+    end
+end
+player.CharacterAdded:Connect(onCharacterAdded)
+
+-- ============================================
+-- 创建 GUI
+-- ============================================
+local screenGui = playerGui:FindFirstChild("GhostGui")
+if screenGui then screenGui:Destroy() end
+
+screenGui = Instance.new("ScreenGui")
+screenGui.Name           = "GhostGui"
+screenGui.ResetOnSpawn   = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent         = playerGui
+
+-- 面板
+local PANEL_W = 200
+local PANEL_H = 80
+
+local panel = Instance.new("Frame")
+panel.Name             = "Panel"
+panel.Size             = UDim2.new(0, PANEL_W, 0, PANEL_H)
+panel.Position         = UDim2.new(0, 10, 0.5, -40)
+panel.BackgroundColor3 = Color3.fromRGB(12, 10, 25)
+panel.BackgroundTransparency = 0.1
+panel.BorderSizePixel  = 0
+panel.Parent           = screenGui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+
+local stroke = Instance.new("UIStroke")
+stroke.Color        = Color3.fromRGB(100, 50, 200)
+stroke.Transparency = 0.45
+stroke.Thickness    = 1
+stroke.Parent       = panel
+
+-- 顶部紫色光条
+local topBar = Instance.new("Frame")
+topBar.Size             = UDim2.new(1, 0, 0, 2)
+topBar.BackgroundColor3 = Color3.fromRGB(130, 60, 255)
+topBar.BorderSizePixel  = 0
+topBar.ZIndex           = 2
+topBar.Parent           = panel
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
+
+-- 标题栏（拖动）
+local titleBar = Instance.new("TextButton")
+titleBar.Size               = UDim2.new(1, 0, 0, 22)
+titleBar.Position           = UDim2.new(0, 0, 0, 4)
+titleBar.BackgroundTransparency = 1
+titleBar.Text               = ""
+titleBar.ZIndex             = 3
+titleBar.Parent             = panel
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size              = UDim2.new(1, -8, 1, 0)
+titleLabel.Position          = UDim2.new(0, 8, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text              = "幽灵系统"
+titleLabel.TextColor3        = Color3.fromRGB(160, 100, 255)
+titleLabel.TextSize          = 11
+titleLabel.Font              = Enum.Font.GothamBold
+titleLabel.TextXAlignment    = Enum.TextXAlignment.Left
+titleLabel.ZIndex            = 4
+titleLabel.Parent            = titleBar
+
+-- 状态文字
+statusLabel = Instance.new("TextLabel")
+statusLabel.Size               = UDim2.new(1, -8, 0, 14)
+statusLabel.Position           = UDim2.new(0, 8, 0, 28)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text               = "○ 幽灵已关闭  [" .. CONFIG.TOGGLE_KEY.Name .. "]"
+statusLabel.TextColor3         = Color3.fromRGB(140, 140, 180)
+statusLabel.TextSize           = 10
+statusLabel.Font               = Enum.Font.Gotham
+statusLabel.TextXAlignment     = Enum.TextXAlignment.Left
+statusLabel.ZIndex             = 3
+statusLabel.Parent             = panel
+
+-- 切换按钮
+toggleBtn = Instance.new("TextButton")
+toggleBtn.Size             = UDim2.new(1, -16, 0, 28)
+toggleBtn.Position         = UDim2.new(0, 8, 0, 46)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 70)
+toggleBtn.BorderSizePixel  = 0
+toggleBtn.Text             = "👻 幽灵模式：关"
+toggleBtn.TextColor3       = Color3.fromRGB(220, 200, 255)
+toggleBtn.TextSize         = 13
+toggleBtn.Font             = Enum.Font.GothamBold
+toggleBtn.AutoButtonColor  = false
+toggleBtn.ZIndex           = 3
+toggleBtn.Parent           = panel
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 7)
+
+-- 按钮点击光效
+toggleBtn.Activated:Connect(function()
+    setGhost(not ghostEnabled)
+    -- 闪光反馈
+    local flash = ghostEnabled
+        and Color3.fromRGB(140, 60, 255)
+        or  Color3.fromRGB(60, 60, 100)
+    toggleBtn.BackgroundColor3 = flash
+    task.delay(0.12, function()
+        if toggleBtn and toggleBtn.Parent then
+            toggleBtn.BackgroundColor3 = ghostEnabled
+                and Color3.fromRGB(80, 30, 160)
+                or  Color3.fromRGB(40, 40, 70)
+        end
+    end)
+end)
+
+-- ============================================
+-- 键盘快捷键
+-- ============================================
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == CONFIG.TOGGLE_KEY then
+        toggleBtn.Activated:Fire()
+    end
+end)
+
+-- ============================================
+-- 面板拖动
+-- ============================================
+local dragging, dragStart, startPos = false, Vector2.zero, panel.Position
+
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging  = true
+        dragStart = Vector2.new(input.Position.X, input.Position.Y)
+        startPos  = panel.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch then
+        local d = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+        panel.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + d.X,
+            startPos.Y.Scale, startPos.Y.Offset + d.Y
+        )
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+print("[幽灵系统] 已加载 · 快捷键：" .. CONFIG.TOGGLE_KEY.Name)
