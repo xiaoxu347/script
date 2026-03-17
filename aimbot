@@ -511,6 +511,37 @@ local function FindClosestInCircle()
 end
 
 -- ============================================================
+--  摄像机模式管理
+--  手机端 Roblox 默认摄像机类型为 Custom，每帧会覆盖 CFrame。
+--  锁定时切换为 Scriptable，释放后还原，避免被引擎重置。
+-- ============================================================
+local originalCamType = Camera.CameraType   -- 保存原始类型（通常是 Custom）
+local camTakenOver    = false               -- 是否已接管摄像机
+
+local function TakeoverCamera()
+    if not camTakenOver then
+        originalCamType = Camera.CameraType
+        Camera.CameraType = Enum.CameraType.Scriptable
+        camTakenOver = true
+    end
+end
+
+local function ReleaseCamera()
+    if camTakenOver then
+        Camera.CameraType = originalCamType
+        camTakenOver = false
+    end
+end
+
+-- 角色重生时重置
+LocalPlayer.CharacterAdded:Connect(function()
+    camTakenOver = false
+    -- 稍等摄像机初始化完毕再记录原始类型
+    task.wait(0.5)
+    originalCamType = Camera.CameraType
+end)
+
+-- ============================================================
 --  主循环
 -- ============================================================
 local lockedTarget = nil
@@ -525,7 +556,9 @@ RunService.RenderStepped:Connect(function()
         wantLock = UserInputService:IsKeyDown(Config.LockKey)
     end
 
+    -- 总开关关闭：还原摄像机并清空状态
     if not Config.Enabled then
+        ReleaseCamera()
         lockedTarget = nil
         CircleStroke.Color = Config.CircleColor
         CrossH.BackgroundColor3 = Config.CircleColor
@@ -557,6 +590,9 @@ RunService.RenderStepped:Connect(function()
 
     -- 平滑跟随
     if lockedTarget then
+        -- 接管摄像机（手机端关键步骤）
+        TakeoverCamera()
+
         local root = GetRootPart(lockedTarget)
         if root then
             local head = lockedTarget.Character and lockedTarget.Character:FindFirstChild("Head")
@@ -570,12 +606,16 @@ RunService.RenderStepped:Connect(function()
                     cf.LookVector*500 + cf.RightVector*delta.X - cf.UpVector*delta.Y + cf.Position)
             end
         end
+
         CircleStroke.Color = Config.LockedColor
         CrossH.BackgroundColor3 = Config.LockedColor
         CrossV.BackgroundColor3 = Config.LockedColor
         LockLabel.Text = "🔒 " .. lockedTarget.Name
         LockLabel.TextColor3 = Config.LockedColor
     else
+        -- 没有锁定目标：还原摄像机控制权
+        ReleaseCamera()
+
         CircleStroke.Color = Config.CircleColor
         CrossH.BackgroundColor3 = Config.CircleColor
         CrossV.BackgroundColor3 = Config.CircleColor
