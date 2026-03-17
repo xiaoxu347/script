@@ -70,7 +70,7 @@ titleFill.BackgroundColor3 = Color3.fromRGB(20, 80, 160)
 titleFill.BorderSizePixel  = 0
 
 local titleLbl = Instance.new("TextLabel", titleBar)
-titleLbl.Size                = UDim2.new(1, -12, 1, 0)
+titleLbl.Size                = UDim2.new(1, -50, 1, 0)
 titleLbl.Position            = UDim2.new(0, 12, 0, 0)
 titleLbl.BackgroundTransparency = 1
 titleLbl.Text                = "📍  位置标记 & 传送"
@@ -78,6 +78,29 @@ titleLbl.TextColor3          = Color3.fromRGB(255, 255, 255)
 titleLbl.TextSize            = 13
 titleLbl.Font                = Enum.Font.GothamBold
 titleLbl.TextXAlignment      = Enum.TextXAlignment.Left
+
+-- 最小化按钮
+local minBtn = Instance.new("TextButton", titleBar)
+minBtn.Size             = UDim2.new(0, 28, 0, 24)
+minBtn.Position         = UDim2.new(1, -34, 0.5, -12)
+minBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 200)
+minBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+minBtn.Text             = "─"
+minBtn.TextSize         = 14
+minBtn.Font             = Enum.Font.GothamBold
+minBtn.BorderSizePixel  = 0
+minBtn.ZIndex           = 5
+do local c = Instance.new("UICorner", minBtn); c.CornerRadius = UDim.new(0, 6) end
+minBtn.MouseEnter:Connect(function() minBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 230) end)
+minBtn.MouseLeave:Connect(function() minBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 200) end)
+
+local isMinimized = false
+minBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    content.Visible   = not isMinimized
+    minBtn.Text       = isMinimized and "□" or "─"
+    titleFill.Visible = not isMinimized  -- 收起时露出标题栏圆角更好看
+end)
 
 -- 内容区（按钮 + 标点列表）
 local content = Instance.new("Frame", panel)
@@ -376,4 +399,13 @@ clearBtn.MouseButton1Click:Connect(function()
     markers      = {}
     markerCount  = 0
     refreshStatus()
+end)
+
+-- 最小化 / 展开
+local isMinimized = false
+minBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    content.Visible   = not isMinimized
+    minBtn.Text       = isMinimized and "□" or "─"
+    titleFill.Visible = not isMinimized
 end)
