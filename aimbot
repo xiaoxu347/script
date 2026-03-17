@@ -1,0 +1,594 @@
+-- ============================================================
+--  AimAssist LocalScript  |  开发测试用途  |  PC + 手机端通用
+--  放置位置: StarterPlayerScripts 或 StarterCharacterScripts
+-- ============================================================
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local TweenService      = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera      = workspace.CurrentCamera
+
+-- ============================================================
+--  平台检测
+-- ============================================================
+local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- ============================================================
+--  可调参数默认值
+-- ============================================================
+local Config = {
+    Enabled         = true,
+    CircleRadius    = IsMobile and 160 or 120,   -- 手机端默认稍大
+    SmoothFactor    = 0.12,
+    LockKey         = Enum.KeyCode.Q,            -- 仅 PC 使用
+    ShowCircle      = true,
+    CircleThickness = 2,
+    TeamCheck       = false,
+    MaxDistance     = 500,
+    CircleColor     = Color3.fromRGB(255, 80, 80),
+    LockedColor     = Color3.fromRGB(80, 255, 120),
+    -- 手机端专属
+    MobileLockMode  = "Toggle",   -- "Toggle"=点一下开/关  |  "Hold"=按住持续锁定
+    BtnSize         = 72,         -- 手机锁定按钮大小（像素）
+}
+
+-- 按钮状态
+local mobileLockHeld    = false
+local mobileLockToggled = false
+
+-- ============================================================
+--  GUI 主体
+-- ============================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = "AimAssistGui"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent         = LocalPlayer.PlayerGui
+
+-- ---------- 瞄准圆圈 ----------
+local CircleFrame = Instance.new("Frame")
+CircleFrame.Name                   = "AimCircle"
+CircleFrame.Size                   = UDim2.new(0, Config.CircleRadius*2, 0, Config.CircleRadius*2)
+CircleFrame.Position               = UDim2.new(0.5, -Config.CircleRadius, 0.5, -Config.CircleRadius)
+CircleFrame.BackgroundTransparency = 1
+CircleFrame.ZIndex                 = 5
+CircleFrame.Parent                 = ScreenGui
+
+local CircleCorner = Instance.new("UICorner")
+CircleCorner.CornerRadius = UDim.new(1, 0)
+CircleCorner.Parent       = CircleFrame
+
+local CircleStroke = Instance.new("UIStroke")
+CircleStroke.Thickness       = Config.CircleThickness
+CircleStroke.Color           = Config.CircleColor
+CircleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+CircleStroke.Parent          = CircleFrame
+
+local CrossH = Instance.new("Frame")
+CrossH.Size             = UDim2.new(0, 12, 0, 1)
+CrossH.Position         = UDim2.new(0.5, -6, 0.5, 0)
+CrossH.BackgroundColor3 = Config.CircleColor
+CrossH.BorderSizePixel  = 0
+CrossH.ZIndex           = 6
+CrossH.Parent           = CircleFrame
+
+local CrossV = Instance.new("Frame")
+CrossV.Size             = UDim2.new(0, 1, 0, 12)
+CrossV.Position         = UDim2.new(0.5, 0, 0.5, -6)
+CrossV.BackgroundColor3 = Config.CircleColor
+CrossV.BorderSizePixel  = 0
+CrossV.ZIndex           = 6
+CrossV.Parent           = CircleFrame
+
+-- ---------- 锁定状态标签 ----------
+local LockLabel = Instance.new("TextLabel")
+LockLabel.Size                   = UDim2.new(0, 160, 0, 24)
+LockLabel.Position               = UDim2.new(0.5, -80, 0.5, Config.CircleRadius + 6)
+LockLabel.BackgroundTransparency = 1
+LockLabel.TextColor3             = Config.LockedColor
+LockLabel.Font                   = Enum.Font.GothamBold
+LockLabel.TextSize               = 13
+LockLabel.Text                   = ""
+LockLabel.ZIndex                 = 6
+LockLabel.Parent                 = ScreenGui
+
+-- ============================================================
+--  手机端：锁定按钮（右下角）
+-- ============================================================
+local MobileLockBtn      = nil
+local MobileLockBtnLabel = nil
+local MobileBtnStroke    = nil
+
+if IsMobile then
+    local bs = Config.BtnSize
+
+    MobileLockBtn = Instance.new("ImageButton")
+    MobileLockBtn.Name                   = "MobileLockBtn"
+    MobileLockBtn.Size                   = UDim2.new(0, bs, 0, bs)
+    MobileLockBtn.Position               = UDim2.new(1, -(bs + 20), 1, -(bs + 100))
+    MobileLockBtn.BackgroundColor3       = Color3.fromRGB(20, 20, 30)
+    MobileLockBtn.BackgroundTransparency = 0.3
+    MobileLockBtn.BorderSizePixel        = 0
+    MobileLockBtn.ZIndex                 = 20
+    MobileLockBtn.Image                  = ""
+    MobileLockBtn.Parent                 = ScreenGui
+
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(1, 0)
+    BtnCorner.Parent       = MobileLockBtn
+
+    MobileBtnStroke = Instance.new("UIStroke")
+    MobileBtnStroke.Color     = Config.CircleColor
+    MobileBtnStroke.Thickness = 2
+    MobileBtnStroke.Parent    = MobileLockBtn
+
+    MobileLockBtnLabel = Instance.new("TextLabel")
+    MobileLockBtnLabel.Size                   = UDim2.new(1, 0, 1, 0)
+    MobileLockBtnLabel.BackgroundTransparency = 1
+    MobileLockBtnLabel.TextColor3             = Color3.fromRGB(230, 230, 255)
+    MobileLockBtnLabel.Font                   = Enum.Font.GothamBold
+    MobileLockBtnLabel.TextSize               = 13
+    MobileLockBtnLabel.Text                   = "🎯\nLOCK"
+    MobileLockBtnLabel.ZIndex                 = 21
+    MobileLockBtnLabel.Parent                 = MobileLockBtn
+
+    local function setLockVisual(on)
+        TweenService:Create(MobileLockBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = on and Color3.fromRGB(20, 70, 20) or Color3.fromRGB(20, 20, 30),
+        }):Play()
+        MobileBtnStroke.Color = on and Config.LockedColor or Config.CircleColor
+        MobileLockBtnLabel.TextColor3 = on and Config.LockedColor or Color3.fromRGB(230,230,255)
+        MobileLockBtnLabel.Text = on and "🔒\nON" or "🎯\nLOCK"
+    end
+
+    -- Toggle 模式
+    MobileLockBtn.MouseButton1Click:Connect(function()
+        if Config.MobileLockMode ~= "Toggle" then return end
+        mobileLockToggled = not mobileLockToggled
+        setLockVisual(mobileLockToggled)
+    end)
+
+    -- Hold 模式
+    MobileLockBtn.MouseButton1Down:Connect(function()
+        if Config.MobileLockMode ~= "Hold" then return end
+        mobileLockHeld = true; setLockVisual(true)
+    end)
+    local function releaseHold()
+        if Config.MobileLockMode ~= "Hold" then return end
+        mobileLockHeld = false; setLockVisual(false)
+    end
+    MobileLockBtn.MouseButton1Up:Connect(releaseHold)
+    MobileLockBtn.TouchEnded:Connect(releaseHold)
+end
+
+-- ============================================================
+--  参数面板
+-- ============================================================
+local PANEL_H = IsMobile and 500 or 420
+
+local Panel = Instance.new("Frame")
+Panel.Name              = "ConfigPanel"
+Panel.Size              = UDim2.new(0, 260, 0, PANEL_H)
+Panel.Position          = UDim2.new(0, 10, 0.5, -PANEL_H/2)
+Panel.BackgroundColor3  = Color3.fromRGB(15, 15, 20)
+Panel.BorderSizePixel   = 0
+Panel.ZIndex            = 10
+Panel.Parent            = ScreenGui
+do
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,8); c.Parent = Panel
+    local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(60,60,80); s.Thickness = 1; s.Parent = Panel
+end
+
+-- 标题栏
+local TitleBar = Instance.new("Frame")
+TitleBar.Size             = UDim2.new(1,0,0,40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(30,30,45)
+TitleBar.BorderSizePixel  = 0; TitleBar.ZIndex = 11; TitleBar.Parent = Panel
+do
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,8); c.Parent = TitleBar
+    local fix = Instance.new("Frame")
+    fix.Size = UDim2.new(1,0,0,10); fix.Position = UDim2.new(0,0,1,-10)
+    fix.BackgroundColor3 = Color3.fromRGB(30,30,45); fix.BorderSizePixel = 0
+    fix.ZIndex = 11; fix.Parent = TitleBar
+end
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1,-50,1,0); TitleLabel.Position = UDim2.new(0,12,0,0)
+TitleLabel.BackgroundTransparency = 1; TitleLabel.TextColor3 = Color3.fromRGB(220,220,255)
+TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextSize = 14
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Text = "🎯  Aim Assist  [" .. (IsMobile and "📱" or "🖥") .. "]"
+TitleLabel.ZIndex = 12; TitleLabel.Parent = TitleBar
+
+local CollapseBtn = Instance.new("TextButton")
+CollapseBtn.Size = UDim2.new(0,32,0,32); CollapseBtn.Position = UDim2.new(1,-36,0,4)
+CollapseBtn.BackgroundColor3 = Color3.fromRGB(50,50,70); CollapseBtn.BorderSizePixel = 0
+CollapseBtn.TextColor3 = Color3.fromRGB(180,180,220); CollapseBtn.Font = Enum.Font.GothamBold
+CollapseBtn.TextSize = 14; CollapseBtn.Text = "—"; CollapseBtn.ZIndex = 13; CollapseBtn.Parent = TitleBar
+do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,5); c.Parent = CollapseBtn end
+
+-- 内容区
+local Content = Instance.new("ScrollingFrame")
+Content.Size = UDim2.new(1,0,1,-40); Content.Position = UDim2.new(0,0,0,40)
+Content.BackgroundTransparency = 1; Content.BorderSizePixel = 0
+Content.ScrollBarThickness = 3; Content.ScrollBarImageColor3 = Color3.fromRGB(80,80,120)
+Content.ZIndex = 11; Content.Parent = Panel
+do
+    local l = Instance.new("UIListLayout"); l.Padding = UDim.new(0,6); l.Parent = Content
+    local p = Instance.new("UIPadding")
+    p.PaddingLeft = UDim.new(0,10); p.PaddingRight = UDim.new(0,10); p.PaddingTop = UDim.new(0,8)
+    p.Parent = Content
+end
+
+-- ============================================================
+--  控件工厂
+-- ============================================================
+local function MakeSection(text)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1,0,0,20); f.BackgroundTransparency = 1; f.ZIndex = 12
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1,0,1,0); lbl.BackgroundTransparency = 1
+    lbl.TextColor3 = Color3.fromRGB(120,120,160); lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11; lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Text = "▸ "..string.upper(text); lbl.ZIndex = 12; lbl.Parent = f
+    f.Parent = Content; return f
+end
+
+local function MakeToggle(label, getter, setter)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1,0,0,36); f.BackgroundColor3 = Color3.fromRGB(25,25,35)
+    f.BorderSizePixel = 0; f.ZIndex = 12
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = f end
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1,-60,1,0); lbl.Position = UDim2.new(0,10,0,0)
+    lbl.BackgroundTransparency = 1; lbl.TextColor3 = Color3.fromRGB(200,200,220)
+    lbl.Font = Enum.Font.Gotham; lbl.TextSize = 13
+    lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.Text = label; lbl.ZIndex = 13; lbl.Parent = f
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(0,40,0,20); track.Position = UDim2.new(1,-50,0.5,-10)
+    track.BackgroundColor3 = getter() and Color3.fromRGB(80,200,120) or Color3.fromRGB(60,60,80)
+    track.BorderSizePixel = 0; track.ZIndex = 13; track.Parent = f
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1,0); c.Parent = track end
+    local thumb = Instance.new("Frame")
+    thumb.Size = UDim2.new(0,16,0,16)
+    thumb.Position = getter() and UDim2.new(1,-18,0.5,-8) or UDim2.new(0,2,0.5,-8)
+    thumb.BackgroundColor3 = Color3.fromRGB(240,240,255); thumb.BorderSizePixel = 0
+    thumb.ZIndex = 14; thumb.Parent = track
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1,0); c.Parent = thumb end
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1,0,1,0); btn.BackgroundTransparency = 1
+    btn.Text = ""; btn.ZIndex = 15; btn.Parent = f
+    btn.MouseButton1Click:Connect(function()
+        local v = not getter(); setter(v)
+        TweenService:Create(track, TweenInfo.new(0.15), {
+            BackgroundColor3 = v and Color3.fromRGB(80,200,120) or Color3.fromRGB(60,60,80)
+        }):Play()
+        TweenService:Create(thumb, TweenInfo.new(0.15), {
+            Position = v and UDim2.new(1,-18,0.5,-8) or UDim2.new(0,2,0.5,-8)
+        }):Play()
+    end)
+    f.Parent = Content; return f
+end
+
+local function MakeSlider(label, min, max, step, getter, setter)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1,0,0,56); f.BackgroundColor3 = Color3.fromRGB(25,25,35)
+    f.BorderSizePixel = 0; f.ZIndex = 12
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = f end
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1,-60,0,24); lbl.Position = UDim2.new(0,10,0,4)
+    lbl.BackgroundTransparency = 1; lbl.TextColor3 = Color3.fromRGB(200,200,220)
+    lbl.Font = Enum.Font.Gotham; lbl.TextSize = 13
+    lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.Text = label; lbl.ZIndex = 13; lbl.Parent = f
+    local valLbl = Instance.new("TextLabel")
+    valLbl.Size = UDim2.new(0,52,0,24); valLbl.Position = UDim2.new(1,-58,0,4)
+    valLbl.BackgroundTransparency = 1; valLbl.TextColor3 = Color3.fromRGB(100,200,255)
+    valLbl.Font = Enum.Font.GothamBold; valLbl.TextSize = 13
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valLbl.Text = tostring(getter()); valLbl.ZIndex = 13; valLbl.Parent = f
+    local trackBg = Instance.new("Frame")
+    trackBg.Size = UDim2.new(1,-20,0,6); trackBg.Position = UDim2.new(0,10,1,-18)
+    trackBg.BackgroundColor3 = Color3.fromRGB(50,50,70); trackBg.BorderSizePixel = 0
+    trackBg.ZIndex = 13; trackBg.Parent = f
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1,0); c.Parent = trackBg end
+    local r0 = (getter()-min)/(max-min)
+    local trackFill = Instance.new("Frame")
+    trackFill.Size = UDim2.new(r0,0,1,0); trackFill.BackgroundColor3 = Color3.fromRGB(100,160,255)
+    trackFill.BorderSizePixel = 0; trackFill.ZIndex = 14; trackFill.Parent = trackBg
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1,0); c.Parent = trackFill end
+    local thumb = Instance.new("Frame")
+    thumb.Size = UDim2.new(0,16,0,16); thumb.AnchorPoint = Vector2.new(0.5,0.5)
+    thumb.Position = UDim2.new(r0,0,0.5,0)
+    thumb.BackgroundColor3 = Color3.fromRGB(200,220,255); thumb.BorderSizePixel = 0
+    thumb.ZIndex = 15; thumb.Parent = trackBg
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1,0); c.Parent = thumb end
+    local dragging = false
+    local function updateFromX(absX)
+        local r = math.clamp((absX - trackBg.AbsolutePosition.X) / trackBg.AbsoluteSize.X, 0, 1)
+        local v = math.clamp(math.round((min + (max-min)*r) / step) * step, min, max)
+        setter(v); valLbl.Text = tostring(v)
+        local rr = (v-min)/(max-min)
+        trackFill.Size = UDim2.new(rr,0,1,0); thumb.Position = UDim2.new(rr,0,0.5,0)
+    end
+    local hitBtn = Instance.new("TextButton")
+    hitBtn.Size = UDim2.new(1,0,0,24); hitBtn.Position = UDim2.new(0,0,1,-24)
+    hitBtn.BackgroundTransparency = 1; hitBtn.Text = ""; hitBtn.ZIndex = 16; hitBtn.Parent = f
+    hitBtn.MouseButton1Down:Connect(function(x) dragging=true; updateFromX(x) end)
+    hitBtn.TouchStarted:Connect(function(touch) dragging=true; updateFromX(touch.Position.X) end)
+    hitBtn.TouchMoved:Connect(function(touch) if dragging then updateFromX(touch.Position.X) end end)
+    hitBtn.TouchEnded:Connect(function() dragging=false end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if dragging and (inp.UserInputType == Enum.UserInputType.MouseMovement
+            or inp.UserInputType == Enum.UserInputType.Touch) then
+            updateFromX(inp.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+            or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    f.Parent = Content; return f
+end
+
+local function MakeModeSelector()
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1,0,0,50); f.BackgroundColor3 = Color3.fromRGB(25,25,35)
+    f.BorderSizePixel = 0; f.ZIndex = 12
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,6); c.Parent = f end
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1,0,0,22); lbl.Position = UDim2.new(0,10,0,4)
+    lbl.BackgroundTransparency = 1; lbl.TextColor3 = Color3.fromRGB(200,200,220)
+    lbl.Font = Enum.Font.Gotham; lbl.TextSize = 13
+    lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.Text = "锁定模式"; lbl.ZIndex = 13; lbl.Parent = f
+    local btnT = Instance.new("TextButton")
+    btnT.Size = UDim2.new(0,96,0,22); btnT.Position = UDim2.new(0,10,1,-28)
+    btnT.Font = Enum.Font.GothamBold; btnT.TextSize = 12; btnT.Text = "点击 Toggle"
+    btnT.BorderSizePixel = 0; btnT.ZIndex = 13; btnT.Parent = f
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,5); c.Parent = btnT end
+    local btnH = Instance.new("TextButton")
+    btnH.Size = UDim2.new(0,96,0,22); btnH.Position = UDim2.new(0,114,1,-28)
+    btnH.Font = Enum.Font.GothamBold; btnH.TextSize = 12; btnH.Text = "按住 Hold"
+    btnH.BorderSizePixel = 0; btnH.ZIndex = 13; btnH.Parent = f
+    do local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,5); c.Parent = btnH end
+    local function refresh()
+        local t = Config.MobileLockMode == "Toggle"
+        btnT.BackgroundColor3 = t and Color3.fromRGB(60,120,200) or Color3.fromRGB(50,50,70)
+        btnT.TextColor3 = t and Color3.fromRGB(240,240,255) or Color3.fromRGB(150,150,180)
+        btnH.BackgroundColor3 = not t and Color3.fromRGB(60,120,200) or Color3.fromRGB(50,50,70)
+        btnH.TextColor3 = not t and Color3.fromRGB(240,240,255) or Color3.fromRGB(150,150,180)
+    end
+    refresh()
+    btnT.MouseButton1Click:Connect(function()
+        Config.MobileLockMode = "Toggle"; mobileLockHeld = false; mobileLockToggled = false
+        if MobileLockBtnLabel then MobileLockBtnLabel.Text = "🎯\nLOCK" end
+        if MobileLockBtn then
+            TweenService:Create(MobileLockBtn, TweenInfo.new(0.1), {BackgroundColor3=Color3.fromRGB(20,20,30)}):Play()
+        end
+        if MobileBtnStroke then MobileBtnStroke.Color = Config.CircleColor end
+        refresh()
+    end)
+    btnH.MouseButton1Click:Connect(function()
+        Config.MobileLockMode = "Hold"; mobileLockHeld = false; mobileLockToggled = false
+        if MobileLockBtnLabel then MobileLockBtnLabel.Text = "🎯\nLOCK" end
+        if MobileLockBtn then
+            TweenService:Create(MobileLockBtn, TweenInfo.new(0.1), {BackgroundColor3=Color3.fromRGB(20,20,30)}):Play()
+        end
+        if MobileBtnStroke then MobileBtnStroke.Color = Config.CircleColor end
+        refresh()
+    end)
+    f.Parent = Content; return f
+end
+
+-- ============================================================
+--  构建面板内容
+-- ============================================================
+MakeSection("基本设置")
+MakeToggle("启用 Aim Assist",
+    function() return Config.Enabled end,
+    function(v) Config.Enabled = v end)
+MakeToggle("显示瞄准圆圈",
+    function() return Config.ShowCircle end,
+    function(v) Config.ShowCircle = v; CircleFrame.Visible = v end)
+MakeToggle("过滤同队玩家",
+    function() return Config.TeamCheck end,
+    function(v) Config.TeamCheck = v end)
+
+MakeSection("圆圈参数")
+MakeSlider("圆圈半径", 30, 400, 5,
+    function() return Config.CircleRadius end,
+    function(v)
+        Config.CircleRadius = v
+        CircleFrame.Size = UDim2.new(0,v*2,0,v*2)
+        CircleFrame.Position = UDim2.new(0.5,-v,0.5,-v)
+        LockLabel.Position = UDim2.new(0.5,-80,0.5,v+6)
+    end)
+MakeSlider("线条粗细", 1, 8, 1,
+    function() return Config.CircleThickness end,
+    function(v) Config.CircleThickness = v; CircleStroke.Thickness = v end)
+MakeSlider("最大距离(studs)", 50, 1000, 25,
+    function() return Config.MaxDistance end,
+    function(v) Config.MaxDistance = v end)
+
+MakeSection("平滑设置")
+MakeSlider("平滑系数 (×100)", 1, 100, 1,
+    function() return math.round(Config.SmoothFactor * 100) end,
+    function(v) Config.SmoothFactor = v / 100 end)
+
+if IsMobile then
+    MakeSection("手机端设置")
+    MakeModeSelector()
+    MakeSlider("锁定按钮大小", 50, 120, 5,
+        function() return Config.BtnSize end,
+        function(v)
+            Config.BtnSize = v
+            if MobileLockBtn then MobileLockBtn.Size = UDim2.new(0,v,0,v) end
+        end)
+end
+
+-- ============================================================
+--  面板拖动（鼠标 + 触屏均支持）
+-- ============================================================
+local draggingPanel, dragStart, startPos = false, nil, nil
+TitleBar.InputBegan:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+        draggingPanel = true; dragStart = inp.Position; startPos = Panel.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(inp)
+    if draggingPanel and (inp.UserInputType == Enum.UserInputType.MouseMovement
+        or inp.UserInputType == Enum.UserInputType.Touch) then
+        local d = inp.Position - dragStart
+        Panel.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X,
+                                   startPos.Y.Scale, startPos.Y.Offset+d.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+        draggingPanel = false
+    end
+end)
+
+local collapsed = false
+CollapseBtn.MouseButton1Click:Connect(function()
+    collapsed = not collapsed
+    TweenService:Create(Panel, TweenInfo.new(0.2), {
+        Size = collapsed and UDim2.new(0,260,0,40) or UDim2.new(0,260,0,PANEL_H)
+    }):Play()
+    CollapseBtn.Text = collapsed and "＋" or "—"
+end)
+
+-- ============================================================
+--  核心逻辑
+-- ============================================================
+local function GetRootPart(player)
+    if player == LocalPlayer then return nil end
+    local ch = player.Character
+    if not ch then return nil end
+    return ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+end
+
+local function IsTeammate(player)
+    if not Config.TeamCheck then return false end
+    return player.Team ~= nil and player.Team == LocalPlayer.Team
+end
+
+local function W2S(worldPos)
+    local sp, on = Camera:WorldToViewportPoint(worldPos)
+    return Vector2.new(sp.X, sp.Y), on, sp.Z
+end
+
+local function ScreenCenter()
+    return Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+end
+
+local function FindClosestInCircle()
+    local center = ScreenCenter()
+    local best, bestDist = nil, math.huge
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl == LocalPlayer or IsTeammate(pl) then continue end
+        local root = GetRootPart(pl)
+        if not root then continue end
+        local myChar = LocalPlayer.Character
+        if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+            if (root.Position - myChar.HumanoidRootPart.Position).Magnitude > Config.MaxDistance then continue end
+        end
+        local sp, on, depth = W2S(root.Position)
+        if not on or depth <= 0 then continue end
+        local dist = (sp - center).Magnitude
+        if dist <= Config.CircleRadius and dist < bestDist then
+            bestDist = dist; best = pl
+        end
+    end
+    return best
+end
+
+-- ============================================================
+--  主循环
+-- ============================================================
+local lockedTarget = nil
+
+RunService.RenderStepped:Connect(function()
+    -- 判断激活状态
+    local wantLock = false
+    if IsMobile then
+        wantLock = (Config.MobileLockMode == "Toggle" and mobileLockToggled)
+               or  (Config.MobileLockMode == "Hold"   and mobileLockHeld)
+    else
+        wantLock = UserInputService:IsKeyDown(Config.LockKey)
+    end
+
+    if not Config.Enabled then
+        lockedTarget = nil
+        CircleStroke.Color = Config.CircleColor
+        CrossH.BackgroundColor3 = Config.CircleColor
+        CrossV.BackgroundColor3 = Config.CircleColor
+        LockLabel.Text = ""
+        return
+    end
+
+    local target = FindClosestInCircle()
+
+    if wantLock and target then
+        lockedTarget = target
+    elseif not wantLock then
+        lockedTarget = nil
+    end
+
+    -- 目标跑出圆圈则释放
+    if lockedTarget then
+        local root = GetRootPart(lockedTarget)
+        if root then
+            local sp, on = W2S(root.Position)
+            if not on or (sp - ScreenCenter()).Magnitude > Config.CircleRadius * 1.5 then
+                lockedTarget = nil
+            end
+        else
+            lockedTarget = nil
+        end
+    end
+
+    -- 平滑跟随
+    if lockedTarget then
+        local root = GetRootPart(lockedTarget)
+        if root then
+            local head = lockedTarget.Character and lockedTarget.Character:FindFirstChild("Head")
+            local aimPos = head and head.Position or root.Position
+            local sp, on = W2S(aimPos)
+            if on then
+                local center = ScreenCenter()
+                local delta = Vector2.new(sp.X-center.X, sp.Y-center.Y) * Config.SmoothFactor
+                local cf = Camera.CFrame
+                Camera.CFrame = CFrame.new(cf.Position,
+                    cf.LookVector*500 + cf.RightVector*delta.X - cf.UpVector*delta.Y + cf.Position)
+            end
+        end
+        CircleStroke.Color = Config.LockedColor
+        CrossH.BackgroundColor3 = Config.LockedColor
+        CrossV.BackgroundColor3 = Config.LockedColor
+        LockLabel.Text = "🔒 " .. lockedTarget.Name
+        LockLabel.TextColor3 = Config.LockedColor
+    else
+        CircleStroke.Color = Config.CircleColor
+        CrossH.BackgroundColor3 = Config.CircleColor
+        CrossV.BackgroundColor3 = Config.CircleColor
+        if target then
+            local hint = IsMobile and "👆 按锁定按钮" or ("[ "..Config.LockKey.Name.." ] 锁定")
+            LockLabel.Text = hint
+            LockLabel.TextColor3 = Color3.fromRGB(255, 220, 80)
+        else
+            LockLabel.Text = ""
+        end
+    end
+
+    CircleFrame.Visible = Config.ShowCircle and Config.Enabled
+end)
+
+print("[AimAssist] 已加载 | 平台: " .. (IsMobile and "手机端 📱" or "PC端 🖥"))
