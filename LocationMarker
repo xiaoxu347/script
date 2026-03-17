@@ -1,0 +1,379 @@
+-- ╔══════════════════════════════════════════════════════╗
+-- ║         LocationMarker  v1.0  位置标记传送            ║
+-- ║  标记当前位置 · 传送至最近标点 · 清空所有标点          ║
+-- ╚══════════════════════════════════════════════════════╝
+
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local LP        = Players.LocalPlayer
+local camera    = workspace.CurrentCamera
+
+-- ══════════════════════════════════════
+--  标点数据
+-- ══════════════════════════════════════
+local markers = {}        -- { id, position, partInWorld, billboard, label }
+local markerCount = 0
+
+-- ══════════════════════════════════════
+--  GUI 构建
+-- ══════════════════════════════════════
+local existGui = LP.PlayerGui:FindFirstChild("LocationMarkerGUI")
+if existGui then existGui:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name          = "LocationMarkerGUI"
+gui.ResetOnSpawn  = false
+gui.ZIndexBehavior= Enum.ZIndexBehavior.Sibling
+gui.Parent        = LP.PlayerGui
+
+-- 主面板
+local panel = Instance.new("Frame", gui)
+panel.Size                = UDim2.new(0, 260, 0, 0)   -- 高度由 UIListLayout 撑开
+panel.AutomaticSize       = Enum.AutomaticSize.Y
+panel.Position            = UDim2.new(1, -280, 0.5, -80)
+panel.BackgroundColor3    = Color3.fromRGB(12, 12, 18)
+panel.BorderSizePixel     = 0
+panel.Active              = true
+panel.Draggable           = true
+do
+    local c = Instance.new("UICorner", panel)
+    c.CornerRadius = UDim.new(0, 12)
+end
+do
+    local s = Instance.new("UIStroke", panel)
+    s.Color     = Color3.fromRGB(60, 180, 255)
+    s.Thickness = 1.2
+end
+
+local layout = Instance.new("UIListLayout", panel)
+layout.FillDirection = Enum.FillDirection.Vertical
+layout.Padding       = UDim.new(0, 0)
+layout.SortOrder     = Enum.SortOrder.LayoutOrder
+
+-- 标题栏
+local titleBar = Instance.new("Frame", panel)
+titleBar.Size             = UDim2.new(1, 0, 0, 38)
+titleBar.BackgroundColor3 = Color3.fromRGB(20, 80, 160)
+titleBar.BorderSizePixel  = 0
+titleBar.LayoutOrder      = 0
+do
+    local c = Instance.new("UICorner", titleBar)
+    c.CornerRadius = UDim.new(0, 12)
+end
+-- 遮住标题栏下半圆角（让底部保持直角）
+local titleFill = Instance.new("Frame", titleBar)
+titleFill.Size             = UDim2.new(1, 0, 0, 12)
+titleFill.Position         = UDim2.new(0, 0, 1, -12)
+titleFill.BackgroundColor3 = Color3.fromRGB(20, 80, 160)
+titleFill.BorderSizePixel  = 0
+
+local titleLbl = Instance.new("TextLabel", titleBar)
+titleLbl.Size                = UDim2.new(1, -12, 1, 0)
+titleLbl.Position            = UDim2.new(0, 12, 0, 0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text                = "📍  位置标记 & 传送"
+titleLbl.TextColor3          = Color3.fromRGB(255, 255, 255)
+titleLbl.TextSize            = 13
+titleLbl.Font                = Enum.Font.GothamBold
+titleLbl.TextXAlignment      = Enum.TextXAlignment.Left
+
+-- 内容区（按钮 + 标点列表）
+local content = Instance.new("Frame", panel)
+content.Size             = UDim2.new(1, 0, 0, 0)
+content.AutomaticSize    = Enum.AutomaticSize.Y
+content.BackgroundTransparency = 1
+content.LayoutOrder      = 1
+do
+    local p = Instance.new("UIPadding", content)
+    p.PaddingTop    = UDim.new(0, 10)
+    p.PaddingBottom = UDim.new(0, 12)
+    p.PaddingLeft   = UDim.new(0, 12)
+    p.PaddingRight  = UDim.new(0, 12)
+end
+local contentLayout = Instance.new("UIListLayout", content)
+contentLayout.FillDirection = Enum.FillDirection.Vertical
+contentLayout.Padding       = UDim.new(0, 8)
+contentLayout.SortOrder     = Enum.SortOrder.LayoutOrder
+
+-- ── 工具按钮行 ──
+local btnRow = Instance.new("Frame", content)
+btnRow.Size             = UDim2.new(1, 0, 0, 34)
+btnRow.BackgroundTransparency = 1
+btnRow.LayoutOrder      = 0
+local btnRowLayout = Instance.new("UIListLayout", btnRow)
+btnRowLayout.FillDirection = Enum.FillDirection.Horizontal
+btnRowLayout.Padding       = UDim.new(0, 6)
+btnRowLayout.SortOrder     = Enum.SortOrder.LayoutOrder
+
+local function makeBtn(text, color, order)
+    local btn = Instance.new("TextButton", btnRow)
+    btn.Size             = UDim2.new(0, 72, 1, 0)
+    btn.BackgroundColor3 = color
+    btn.TextColor3       = Color3.fromRGB(255, 255, 255)
+    btn.Text             = text
+    btn.TextSize         = 12
+    btn.Font             = Enum.Font.GothamBold
+    btn.BorderSizePixel  = 0
+    btn.LayoutOrder      = order
+    do local c = Instance.new("UICorner", btn); c.CornerRadius = UDim.new(0, 8) end
+    -- 悬停效果
+    local orig = color
+    btn.MouseEnter:Connect(function()
+        btn.BackgroundColor3 = Color3.new(
+            math.min(orig.R + 0.15, 1),
+            math.min(orig.G + 0.15, 1),
+            math.min(orig.B + 0.15, 1))
+    end)
+    btn.MouseLeave:Connect(function() btn.BackgroundColor3 = orig end)
+    return btn
+end
+
+local markBtn  = makeBtn("📍 标记", Color3.fromRGB(30, 140, 80),  0)
+local tpBtn    = makeBtn("⚡ 传送", Color3.fromRGB(30, 100, 200), 1)
+local clearBtn = makeBtn("🗑 清空", Color3.fromRGB(160, 40, 40),  2)
+
+-- ── 状态提示 ──
+local statusLbl = Instance.new("TextLabel", content)
+statusLbl.Size             = UDim2.new(1, 0, 0, 18)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Text             = "尚未标记任何位置"
+statusLbl.TextColor3       = Color3.fromRGB(130, 150, 190)
+statusLbl.TextSize         = 11
+statusLbl.Font             = Enum.Font.Gotham
+statusLbl.TextXAlignment   = Enum.TextXAlignment.Left
+statusLbl.LayoutOrder      = 1
+
+-- 分割线
+local divider = Instance.new("Frame", content)
+divider.Size             = UDim2.new(1, 0, 0, 1)
+divider.BackgroundColor3 = Color3.fromRGB(40, 50, 80)
+divider.BorderSizePixel  = 0
+divider.LayoutOrder      = 2
+
+-- ── 标点列表容器 ──
+local listContainer = Instance.new("Frame", content)
+listContainer.Size          = UDim2.new(1, 0, 0, 0)
+listContainer.AutomaticSize = Enum.AutomaticSize.Y
+listContainer.BackgroundTransparency = 1
+listContainer.LayoutOrder   = 3
+local listLayout = Instance.new("UIListLayout", listContainer)
+listLayout.FillDirection = Enum.FillDirection.Vertical
+listLayout.Padding       = UDim.new(0, 4)
+listLayout.SortOrder     = Enum.SortOrder.LayoutOrder
+
+-- ══════════════════════════════════════
+--  世界场景标记（发光小球 + 名称牌）
+-- ══════════════════════════════════════
+local markerFolder = workspace:FindFirstChild("_MarkerFolder")
+    or (function()
+        local f = Instance.new("Folder", workspace)
+        f.Name = "_MarkerFolder"
+        return f
+    end)()
+
+local MARKER_COLORS = {
+    Color3.fromRGB(80,  200, 255),
+    Color3.fromRGB(255, 180, 60),
+    Color3.fromRGB(120, 255, 140),
+    Color3.fromRGB(255, 100, 160),
+    Color3.fromRGB(200, 140, 255),
+    Color3.fromRGB(255, 220, 80),
+}
+
+local function createWorldMarker(position, id, color)
+    -- 发光球
+    local part = Instance.new("Part", markerFolder)
+    part.Name      = "Marker_" .. id
+    part.Shape     = Enum.PartType.Ball
+    part.Size      = Vector3.new(1.2, 1.2, 1.2)
+    part.CFrame    = CFrame.new(position)
+    part.Anchored  = true
+    part.CanCollide= false
+    part.Material  = Enum.Material.Neon
+    part.Color     = color
+    part.CastShadow= false
+
+    -- 脉冲动画（缩放）
+    local function pulse()
+        TweenService:Create(part, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+            { Size = Vector3.new(1.6, 1.6, 1.6) }):Play()
+    end
+    pulse()
+
+    -- BillboardGui 名称牌
+    local bb = Instance.new("BillboardGui", part)
+    bb.Size          = UDim2.new(0, 100, 0, 28)
+    bb.StudsOffset   = Vector3.new(0, 2.2, 0)
+    bb.AlwaysOnTop   = true
+    bb.LightInfluence= 0
+
+    local lbl = Instance.new("TextLabel", bb)
+    lbl.Size                  = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency= 1
+    lbl.Text                  = "📍 #" .. id
+    lbl.TextColor3            = color
+    lbl.TextStrokeColor3      = Color3.fromRGB(0, 0, 0)
+    lbl.TextStrokeTransparency= 0.3
+    lbl.Font                  = Enum.Font.GothamBold
+    lbl.TextSize               = 13
+
+    return part, bb, lbl
+end
+
+-- ══════════════════════════════════════
+--  GUI 标点行
+-- ══════════════════════════════════════
+local function createMarkerRow(id, pos, color)
+    local row = Instance.new("Frame", listContainer)
+    row.Name             = "Row_" .. id
+    row.Size             = UDim2.new(1, 0, 0, 28)
+    row.BackgroundColor3 = Color3.fromRGB(20, 22, 32)
+    row.BorderSizePixel  = 0
+    row.LayoutOrder      = id
+    do local c = Instance.new("UICorner", row); c.CornerRadius = UDim.new(0, 6) end
+
+    -- 色块
+    local dot = Instance.new("Frame", row)
+    dot.Size             = UDim2.new(0, 8, 0, 8)
+    dot.Position         = UDim2.new(0, 8, 0.5, -4)
+    dot.BackgroundColor3 = color
+    dot.BorderSizePixel  = 0
+    do local c = Instance.new("UICorner", dot); c.CornerRadius = UDim.new(1, 0) end
+
+    -- 坐标文字
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size             = UDim2.new(1, -80, 1, 0)
+    lbl.Position         = UDim2.new(0, 22, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text             = string.format("#%d  (%.0f, %.0f, %.0f)", id, pos.X, pos.Y, pos.Z)
+    lbl.TextColor3       = Color3.fromRGB(200, 210, 230)
+    lbl.TextSize         = 11
+    lbl.Font             = Enum.Font.Gotham
+    lbl.TextXAlignment   = Enum.TextXAlignment.Left
+
+    -- 单独传送按钮
+    local goBtn = Instance.new("TextButton", row)
+    goBtn.Size             = UDim2.new(0, 40, 0, 20)
+    goBtn.Position         = UDim2.new(1, -48, 0.5, -10)
+    goBtn.BackgroundColor3 = Color3.fromRGB(30, 100, 200)
+    goBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+    goBtn.Text             = "去"
+    goBtn.TextSize         = 11
+    goBtn.Font             = Enum.Font.GothamBold
+    goBtn.BorderSizePixel  = 0
+    do local c = Instance.new("UICorner", goBtn); c.CornerRadius = UDim.new(0, 5) end
+    goBtn.MouseButton1Click:Connect(function()
+        local char = LP.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+            statusLbl.Text      = string.format("✅ 已传送到 #%d", id)
+            statusLbl.TextColor3= Color3.fromRGB(100, 220, 140)
+        end
+    end)
+
+    return row
+end
+
+-- ══════════════════════════════════════
+--  核心功能
+-- ══════════════════════════════════════
+
+-- 刷新状态文字
+local function refreshStatus()
+    if #markers == 0 then
+        statusLbl.Text      = "尚未标记任何位置"
+        statusLbl.TextColor3= Color3.fromRGB(130, 150, 190)
+    else
+        statusLbl.Text      = string.format("共 %d 个标点", #markers)
+        statusLbl.TextColor3= Color3.fromRGB(160, 200, 255)
+    end
+end
+
+-- 标记当前位置
+markBtn.MouseButton1Click:Connect(function()
+    local char = LP.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    markerCount = markerCount + 1
+    local id    = markerCount
+    local pos   = root.Position
+    local color = MARKER_COLORS[(id - 1) % #MARKER_COLORS + 1]
+
+    local worldPart, bb, lbl = createWorldMarker(pos, id, color)
+    local row                = createMarkerRow(id, pos, color)
+
+    table.insert(markers, {
+        id        = id,
+        position  = pos,
+        part      = worldPart,
+        billboard = bb,
+        label     = lbl,
+        row       = row,
+        color     = color,
+    })
+
+    statusLbl.Text      = string.format("✅ 标点 #%d 已记录", id)
+    statusLbl.TextColor3= Color3.fromRGB(100, 220, 140)
+    task.delay(1.5, refreshStatus)
+end)
+
+-- 传送：优先传送到距屏幕中心最近的标点
+tpBtn.MouseButton1Click:Connect(function()
+    if #markers == 0 then
+        statusLbl.Text      = "⚠ 没有可用的标点"
+        statusLbl.TextColor3= Color3.fromRGB(255, 180, 60)
+        return
+    end
+
+    local vpSize    = camera.ViewportSize
+    local screenCenter = Vector2.new(vpSize.X / 2, vpSize.Y / 2)
+
+    local bestMarker  = nil
+    local bestDist    = math.huge
+
+    for _, m in ipairs(markers) do
+        -- 将世界坐标投影到屏幕
+        local screenPos, onScreen = camera:WorldToScreenPoint(m.position)
+        local dist2D
+        if onScreen then
+            dist2D = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+        else
+            -- 不在屏幕内时给一个很大的偏移，但仍参与比较（相机后方用极大值排除）
+            if screenPos.Z < 0 then
+                dist2D = math.huge
+            else
+                dist2D = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude + 5000
+            end
+        end
+
+        if dist2D < bestDist then
+            bestDist   = dist2D
+            bestMarker = m
+        end
+    end
+
+    if bestMarker then
+        local char = LP.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.CFrame = CFrame.new(bestMarker.position + Vector3.new(0, 3, 0))
+            statusLbl.Text      = string.format("⚡ 传送至 #%d（屏幕最近）", bestMarker.id)
+            statusLbl.TextColor3= Color3.fromRGB(100, 200, 255)
+        end
+    end
+end)
+
+-- 清空所有标点
+clearBtn.MouseButton1Click:Connect(function()
+    for _, m in ipairs(markers) do
+        pcall(function() m.part:Destroy() end)
+        pcall(function() m.row:Destroy() end)
+    end
+    markers      = {}
+    markerCount  = 0
+    refreshStatus()
+end)
