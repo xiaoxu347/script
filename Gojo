@@ -165,20 +165,20 @@ local function feedback(btn, origText, origColor, ok)
 end
 
 behindBtn.MouseButton1Click:Connect(function()
-    local ok, _ = teleport(-5)
+    local ok, _ = teleport(-7)
     feedback(behindBtn, "⬅ 传送到身后", Color3.fromRGB(0, 130, 210), ok)
 end)
 
 frontBtn.MouseButton1Click:Connect(function()
-    local ok, _ = teleport(5)
+    local ok, _ = teleport(7)
     feedback(frontBtn, "➡ 传送到身前", Color3.fromRGB(150, 60, 200), ok)
 end)
 
 -- 快捷键：T=身后，Y=身前
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
-    if input.KeyCode == Enum.KeyCode.T then behindBtn.MouseButton1Click:Fire() end
-    if input.KeyCode == Enum.KeyCode.Y then frontBtn.MouseButton1Click:Fire() end
+    if input.KeyCode == Enum.KeyCode.E then behindBtn.MouseButton1Click:Fire() end
+    if input.KeyCode == Enum.KeyCode.R then frontBtn.MouseButton1Click:Fire() end
 end)
 
 print("传送脚本已加载 | T=身后 Y=身前")
