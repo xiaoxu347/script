@@ -1,0 +1,159 @@
+-- ESPGui LocalScript
+-- 放入 StarterGui 下的 ScreenGui 的 LocalScript 中
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+
+-- 获取GUI
+local ScreenGui = script.Parent  -- ScreenGui
+
+-- ============================
+-- 创建主面板
+-- ============================
+local ESPFrame = Instance.new("Frame")
+ESPFrame.Name = "ESPFrame"
+ESPFrame.Size = UDim2.new(0, 200, 0, 260)
+ESPFrame.Position = UDim2.new(0, 16, 0.5, -130)
+ESPFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+ESPFrame.BackgroundTransparency = 0.1
+ESPFrame.BorderSizePixel = 0
+ESPFrame.Parent = ScreenGui
+
+-- 圆角
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = ESPFrame
+
+-- 描边
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(0, 180, 255)
+stroke.Thickness = 1.5
+stroke.Transparency = 0.3
+stroke.Parent = ESPFrame
+
+-- 标题栏
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 36)
+TitleBar.BackgroundColor3 = Color3.fromRGB(0, 140, 220)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = ESPFrame
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, -10, 1, 0)
+TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "🔍 玩家透视 ESP"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 14
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = TitleBar
+
+-- ============================
+-- 可拖动
+-- ============================
+local dragging, dragStart, startPos
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or
+       input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ESPFrame.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging then
+        local delta = input.Position - dragStart
+        ESPFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or
+       input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+-- ============================
+-- 辅助：创建按钮
+-- ============================
+local function createToggleButton(parent, yOffset, text, isOn, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -20, 0, 36)
+    btn.Position = UDim2.new(0, 10, 0, yOffset)
+    btn.BackgroundColor3 = isOn and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(160, 50, 50)
+    btn.BorderSizePixel = 0
+    btn.Text = (isOn and "✅ " or "❌ ") .. text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamSemibold
+    btn.TextSize = 13
+    btn.Parent = parent
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 8)
+    btnCorner.Parent = btn
+
+    local state = isOn
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.Text = (state and "✅ " or "❌ ") .. text
+        TweenService:Create(btn, TweenInfo.new(0.15), {
+            BackgroundColor3 = state 
+                and Color3.fromRGB(0, 170, 100) 
+                or Color3.fromRGB(160, 50, 50)
+        }):Play()
+        callback(state)
+    end)
+
+    return btn
+end
+
+-- ============================
+-- 创建控制按钮
+-- ============================
+
+-- 共享配置引用（通过_G简单共享，实际项目建议用ModuleScript）
+_G.ESPConfig = _G.ESPConfig or {
+    Enabled = true,
+    ShowName = true,
+    ShowDistance = true,
+    ShowTeammates = true,
+    ShowEnemies = true,
+}
+
+local cfg = _G.ESPConfig
+
+createToggleButton(ESPFrame, 46, "ESP 总开关", cfg.Enabled, function(v)
+    cfg.Enabled = v
+end)
+
+createToggleButton(ESPFrame, 90, "显示名字", cfg.ShowName, function(v)
+    cfg.ShowName = v
+end)
+
+createToggleButton(ESPFrame, 134, "显示距离", cfg.ShowDistance, function(v)
+    cfg.ShowDistance = v
+end)
+
+createToggleButton(ESPFrame, 178, "显示队友", cfg.ShowTeammates, function(v)
+    cfg.ShowTeammates = v
+end)
+
+-- 说明文字
+local hint = Instance.new("TextLabel")
+hint.Size = UDim2.new(1, -20, 0, 20)
+hint.Position = UDim2.new(0, 10, 0, 232)
+hint.BackgroundTransparency = 1
+hint.Text = "按 F 键快速切换 ESP"
+hint.TextColor3 = Color3.fromRGB(150, 150, 180)
+hint.Font = Enum.Font.Gotham
+hint.TextSize = 11
+hint.Parent = ESPFrame
