@@ -1,319 +1,203 @@
--- 一体化ESP测试脚本
--- 放入：StarterPlayerScripts > LocalScript（命名ESPTest）
+-- LocalScript: PlayerESP (放入 StarterPlayerScripts)
+-- 适用于休闲游戏的玩家透视高亮效果
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+local localPlayer = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
-local LocalPlayer = Players.LocalPlayer
+-- ========== 配置 ==========
+local CONFIG = {
+    HighlightColor = Color3.fromRGB(0, 200, 255),   -- 高亮颜色
+    OutlineColor = Color3.fromRGB(255, 255, 255),    -- 轮廓颜色
+    FillTransparency = 0.6,                          -- 填充透明度
+    OutlineTransparency = 0,                         -- 轮廓透明度
+    ShowDistance = true,                             -- 显示距离
+    ShowName = true,                                 -- 显示名字
+    MaxDistance = 500,                               -- 最大显示距离
+    Enabled = true,                                  -- 总开关
+    TeamColorMode = true,                            -- 按队伍颜色高亮
+}
 
--- 等待角色和GUI加载
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+-- ========== 存储 ==========
+local espObjects = {}  -- { [player] = { highlight, billboard } }
 
--- ============================================
--- 创建GUI（直接在脚本里建，不依赖StarterGui）
--- ============================================
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ESPGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = PlayerGui
+-- ========== 颜色工具 ==========
+local teamColors = {
+    Color3.fromRGB(255, 100, 100),
+    Color3.fromRGB(100, 255, 100),
+    Color3.fromRGB(100, 150, 255),
+    Color3.fromRGB(255, 220, 50),
+    Color3.fromRGB(255, 100, 220),
+    Color3.fromRGB(100, 255, 220),
+}
+local playerColorMap = {}
+local colorIndex = 0
+
+local function getPlayerColor(player)
+    if CONFIG.TeamColorMode and player.Team then
+        return player.TeamColor.Color
+    end
+    if not playerColorMap[player] then
+        colorIndex = (colorIndex % #teamColors) + 1
+        playerColorMap[player] = teamColors[colorIndex]
+    end
+    return playerColorMap[player]
+end
+
+-- ========== 创建 ESP ==========
+local function createESP(player)
+    if player == localPlayer then return end
+    if espObjects[player] then return end
+
+    local color = getPlayerColor(player)
+
+    -- Highlight
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = color
+    highlight.OutlineColor = CONFIG.OutlineColor
+    highlight.FillTransparency = CONFIG.FillTransparency
+    highlight.OutlineTransparency = CONFIG.OutlineTransparency
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop  -- 透视穿墙
+    highlight.Enabled = CONFIG.Enabled
+
+    -- BillboardGui (名字+距离)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.new(0, 120, 0, 40)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.AlwaysOnTop = true
+    billboard.ResetOnSpawn = false
+
+    local nameLabel = Instance.new("TextLabel", billboard)
+    nameLabel.Size = UDim2.new(1, 0, 0.6, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = color
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextScaled = true
+    nameLabel.Text = player.DisplayName or player.Name
+    nameLabel.Name = "NameLabel"
+
+    local distLabel = Instance.new("TextLabel", billboard)
+    distLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    distLabel.Position = UDim2.new(0, 0, 0.6, 0)
+    distLabel.BackgroundTransparency = 1
+    distLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    distLabel.TextStrokeTransparency = 0.5
+    distLabel.Font = Enum.Font.Gotham
+    distLabel.TextScaled = true
+    distLabel.Text = ""
+    distLabel.Name = "DistLabel"
+
+    espObjects[player] = {
+        highlight = highlight,
+        billboard = billboard,
+        nameLabel = nameLabel,
+        distLabel = distLabel,
+    }
+end
+
+-- ========== 移除 ESP ==========
+local function removeESP(player)
+    local obj = espObjects[player]
+    if obj then
+        if obj.highlight then obj.highlight:Destroy() end
+        if obj.billboard then obj.billboard:Destroy() end
+        espObjects[player] = nil
+    end
+end
+
+-- ========== 更新 ESP 附加位置 ==========
+local function updateESP(player)
+    local obj = espObjects[player]
+    if not obj then return end
+
+    local char = player.Character
+    if not char then
+        obj.highlight.Parent = nil
+        obj.billboard.Parent = nil
+        return
+    end
+
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+    if not root or not humanoid or humanoid.Health <= 0 then
+        obj.highlight.Parent = nil
+        obj.billboard.Parent = nil
+        return
+    end
+
+    local localChar = localPlayer.Character
+    local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
+    local dist = localRoot and (root.Position - localRoot.Position).Magnitude or 0
+
+    if dist > CONFIG.MaxDistance then
+        obj.highlight.Parent = nil
+        obj.billboard.Parent = nil
+        return
+    end
+
+    -- 挂载
+    if obj.highlight.Parent ~= char then
+        obj.highlight.Parent = char
+    end
+    if obj.billboard.Parent ~= root then
+        obj.billboard.Parent = root
+    end
+
+    -- 更新文字
+    obj.nameLabel.Visible = CONFIG.ShowName
+    obj.distLabel.Visible = CONFIG.ShowDistance
+    if CONFIG.ShowDistance then
+        obj.distLabel.Text = string.format("%.0fm", dist)
+    end
+
+    obj.highlight.Enabled = CONFIG.Enabled
+end
+
+-- ========== 监听玩家 ==========
+local function onPlayerAdded(player)
+    createESP(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        createESP(player)
+    end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    onPlayerAdded(p)
+end
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(function(player)
+    removeESP(player)
+    playerColorMap[player] = nil
+end)
+
+-- ========== 每帧更新 ==========
+RunService.Heartbeat:Connect(function()
+    if not CONFIG.Enabled then return end
+    for player, _ in pairs(espObjects) do
+        updateESP(player)
+    end
+end)
+
+-- ========== GUI 控制面板 ==========
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ESPPanel"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = localPlayer.PlayerGui
 
 -- 主面板
-local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 200, 0, 220)
-Frame.Position = UDim2.new(0, 16, 0.5, -110)
-Frame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-Frame.BackgroundTransparency = 0.05
-Frame.BorderSizePixel = 0
-Frame.Parent = ScreenGui
+local panel = Instance.new("Frame", screenGui)
+panel.Size = UDim2.new(0, 200, 0, 260)
+panel.Position = UDim2.new(0, 10, 0.5, -130)
+panel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+panel.BackgroundTransparency = 0.15
+panel.BorderSizePixel = 0
+panel.Active = true
+panel.Draggable = true
 
-Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 10)
-
-local stroke = Instance.new("UIStroke", Frame)
-stroke.Color = Color3.fromRGB(0, 180, 255)
-stroke.Thickness = 1.5
-
--- 标题
-local Title = Instance.new("Frame", Frame)
-Title.Size = UDim2.new(1, 0, 0, 34)
-Title.BackgroundColor3 = Color3.fromRGB(0, 130, 210)
-Title.BorderSizePixel = 0
-Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
-
-local TitleText = Instance.new("TextLabel", Title)
-TitleText.Size = UDim2.new(1, -10, 1, 0)
-TitleText.Position = UDim2.new(0, 10, 0, 0)
-TitleText.BackgroundTransparency = 1
-TitleText.Text = "🔍 玩家透视 ESP"
-TitleText.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleText.Font = Enum.Font.GothamBold
-TitleText.TextSize = 14
-TitleText.TextXAlignment = Enum.TextXAlignment.Left
-
--- 状态标签
-local StatusLabel = Instance.new("TextLabel", Frame)
-StatusLabel.Size = UDim2.new(1, -20, 0, 24)
-StatusLabel.Position = UDim2.new(0, 10, 0, 42)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "状态：✅ 已开启"
-StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-StatusLabel.Font = Enum.Font.GothamSemibold
-StatusLabel.TextSize = 13
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-
--- 玩家数标签
-local CountLabel = Instance.new("TextLabel", Frame)
-CountLabel.Size = UDim2.new(1, -20, 0, 20)
-CountLabel.Position = UDim2.new(0, 10, 0, 68)
-CountLabel.BackgroundTransparency = 1
-CountLabel.Text = "追踪玩家：0"
-CountLabel.TextColor3 = Color3.fromRGB(180, 180, 210)
-CountLabel.Font = Enum.Font.Gotham
-CountLabel.TextSize = 12
-CountLabel.TextXAlignment = Enum.TextXAlignment.Left
-
--- 开关按钮
-local ToggleBtn = Instance.new("TextButton", Frame)
-ToggleBtn.Size = UDim2.new(1, -20, 0, 36)
-ToggleBtn.Position = UDim2.new(0, 10, 0, 100)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
-ToggleBtn.BorderSizePixel = 0
-ToggleBtn.Text = "✅  ESP 开启"
-ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.TextSize = 14
-Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 8)
-
--- 提示
-local HintLabel = Instance.new("TextLabel", Frame)
-HintLabel.Size = UDim2.new(1, -20, 0, 20)
-HintLabel.Position = UDim2.new(0, 10, 0, 148)
-HintLabel.BackgroundTransparency = 1
-HintLabel.Text = "按 F 键快速切换"
-HintLabel.TextColor3 = Color3.fromRGB(120, 120, 150)
-HintLabel.Font = Enum.Font.Gotham
-HintLabel.TextSize = 11
-HintLabel.TextXAlignment = Enum.TextXAlignment.Left
-
--- 调试输出
-local DebugLabel = Instance.new("TextLabel", Frame)
-DebugLabel.Size = UDim2.new(1, -20, 0, 40)
-DebugLabel.Position = UDim2.new(0, 10, 0, 170)
-DebugLabel.BackgroundTransparency = 1
-DebugLabel.Text = "等待其他玩家..."
-DebugLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-DebugLabel.Font = Enum.Font.Gotham
-DebugLabel.TextSize = 11
-DebugLabel.TextXAlignment = Enum.TextXAlignment.Left
-DebugLabel.TextWrapped = true
-
--- 可拖动
-local dragging, dragStart, startPos
-Title.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = Frame.Position
-    end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMove then
-        local delta = input.Position - dragStart
-        Frame.Position = UDim2.new(
-            startPos.X.Scale, startPos.X.Offset + delta.X,
-            startPos.Y.Scale, startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end)
-
--- ============================================
--- ESP 核心逻辑
--- ============================================
-local ESPEnabled = true
-local ESPData = {}
-
-local function getColor(player)
-    if LocalPlayer.Team and player.Team then
-        if player.Team == LocalPlayer.Team then
-            return Color3.fromRGB(0, 200, 255)   -- 队友蓝
-        else
-            return Color3.fromRGB(255, 80, 80)    -- 敌人红
-        end
-    end
-    return Color3.fromRGB(255, 215, 0)            -- 默认金色
-end
-
-local function addESP(player)
-    if player == LocalPlayer then return end
-
-    local function setupCharacter(character)
-        task.wait(0.5)  -- 等角色完全加载
-
-        -- 清理旧高亮
-        if ESPData[player] then
-            pcall(function()
-                if ESPData[player].highlight then
-                    ESPData[player].highlight:Destroy()
-                end
-                if ESPData[player].billboard then
-                    ESPData[player].billboard:Destroy()
-                end
-            end)
-        end
-
-        local color = getColor(player)
-
-        -- 创建高亮（穿墙透视）
-        local hl = Instance.new("Highlight")
-        hl.FillColor = color
-        hl.OutlineColor = color
-        hl.FillTransparency = 0.55
-        hl.OutlineTransparency = 0
-        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.Adornee = character
-        hl.Parent = character
-
-        -- 创建名字+距离牌
-        local root = character:FindFirstChild("HumanoidRootPart")
-        local bb, nameL, distL
-        if root then
-            bb = Instance.new("BillboardGui")
-            bb.AlwaysOnTop = true
-            bb.Size = UDim2.new(0, 110, 0, 38)
-            bb.StudsOffset = Vector3.new(0, 3.2, 0)
-            bb.Adornee = root
-            bb.Parent = character
-
-            nameL = Instance.new("TextLabel", bb)
-            nameL.Size = UDim2.new(1, 0, 0.58, 0)
-            nameL.BackgroundTransparency = 1
-            nameL.Text = player.DisplayName
-            nameL.TextColor3 = color
-            nameL.TextStrokeTransparency = 0
-            nameL.TextStrokeColor3 = Color3.fromRGB(0,0,0)
-            nameL.Font = Enum.Font.GothamBold
-            nameL.TextScaled = true
-
-            distL = Instance.new("TextLabel", bb)
-            distL.Size = UDim2.new(1, 0, 0.42, 0)
-            distL.Position = UDim2.new(0, 0, 0.58, 0)
-            distL.BackgroundTransparency = 1
-            distL.Text = "?"
-            distL.TextColor3 = Color3.fromRGB(220, 220, 220)
-            distL.TextStrokeTransparency = 0
-            distL.TextStrokeColor3 = Color3.fromRGB(0,0,0)
-            distL.Font = Enum.Font.Gotham
-            distL.TextScaled = true
-        end
-
-        ESPData[player] = {
-            highlight = hl,
-            billboard = bb,
-            distLabel = distL,
-            nameLabel = nameL,
-        }
-
-        DebugLabel.Text = "已追踪: " .. player.DisplayName
-    end
-
-    player.CharacterAdded:Connect(setupCharacter)
-    if player.Character then
-        setupCharacter(player.Character)
-    end
-end
-
-local function removeESP(player)
-    if ESPData[player] then
-        pcall(function()
-            if ESPData[player].highlight then ESPData[player].highlight:Destroy() end
-            if ESPData[player].billboard then ESPData[player].billboard:Destroy() end
-        end)
-        ESPData[player] = nil
-    end
-end
-
--- 初始化所有玩家
-for _, p in ipairs(Players:GetPlayers()) do
-    addESP(p)
-end
-Players.PlayerAdded:Connect(addESP)
-Players.PlayerRemoving:Connect(removeESP)
-
--- ============================================
--- 每帧更新
--- ============================================
-RunService.Heartbeat:Connect(function()
-    local myChar = LocalPlayer.Character
-    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    local count = 0
-
-    for player, data in pairs(ESPData) do
-        if not player.Parent then
-            removeESP(player)
-            continue
-        end
-
-        local char = player.Character
-        local theirRoot = char and char:FindFirstChild("HumanoidRootPart")
-        local dist = 0
-        if myRoot and theirRoot then
-            dist = math.floor((myRoot.Position - theirRoot.Position).Magnitude)
-        end
-
-        local visible = ESPEnabled and dist > 0 and dist <= 500
-        local color = getColor(player)
-
-        if data.highlight then
-            data.highlight.Enabled = visible
-            data.highlight.FillColor = color
-            data.highlight.OutlineColor = color
-        end
-        if data.billboard then
-            data.billboard.Enabled = visible
-        end
-        if data.distLabel then
-            data.distLabel.Text = dist .. " studs"
-        end
-        if data.nameLabel then
-            data.nameLabel.TextColor3 = color
-        end
-
-        if visible then count += 1 end
-    end
-
-    CountLabel.Text = "追踪玩家：" .. count
-end)
-
--- ============================================
--- 开关逻辑
--- ============================================
-local function toggleESP(state)
-    ESPEnabled = state
-    ToggleBtn.Text = state and "✅  ESP 开启" or "❌  ESP 关闭"
-    ToggleBtn.BackgroundColor3 = state 
-        and Color3.fromRGB(0, 170, 100) 
-        or Color3.fromRGB(170, 50, 50)
-    StatusLabel.Text = state and "状态：✅ 已开启" or "状态：❌ 已关闭"
-    StatusLabel.TextColor3 = state 
-        and Color3.fromRGB(100, 255, 150) 
-        or Color3.fromRGB(255, 100, 100)
-end
-
-ToggleBtn.MouseButton1Click:Connect(function()
-    toggleESP(not ESPEnabled)
-end)
-
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        toggleESP(not ESPEnabled)
-    end
-end)
-
-print("[ESP] ✅ 脚本加载成功！")
+local corner = Instance.new("UICorner", panel)
+corner.CornerRad
