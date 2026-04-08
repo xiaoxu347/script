@@ -1,0 +1,547 @@
+-- ╔══════════════════════════════════════════════════════╗
+-- ║         ShadowFollow  v2.1  替身跟随                  ║
+-- ║  名称补全修复 · 视角朝向锁定 · 安全观战模式           ║
+-- ╚══════════════════════════════════════════════════════╝
+
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local LP     = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- ══════════════════════════════════════
+--  配置
+-- ══════════════════════════════════════
+local CFG = {
+    behindDist   = 4,
+    aboveOffset  = 2,
+    safeDepth    = -80,
+    camDist      = 12,
+    camHeight    = 5,
+}
+
+-- ══════════════════════════════════════
+--  状态
+-- ══════════════════════════════════════
+local followEnabled = false
+local safeMode      = false
+local targetPlayer  = nil
+local followConn    = nil
+local safeModeConn  = nil
+
+local function getRootOf(player)
+    local c = player and player.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function getMyParts()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart"),
+           c and c:FindFirstChild("Humanoid")
+end
+
+local function stopAll()
+    if followConn   then followConn:Disconnect();   followConn   = nil end
+    if safeModeConn then safeModeConn:Disconnect(); safeModeConn = nil end
+    local _, myHum = getMyParts()
+    if myHum then myHum.PlatformStand = false end
+    followEnabled = false
+    safeMode      = false
+    targetPlayer  = nil
+end
+
+local function startFollow()
+    if followConn then followConn:Disconnect(); followConn = nil end
+    if not targetPlayer then return end
+    local myRoot, myHum = getMyParts()
+    if not myRoot or not myHum then return end
+    myHum.PlatformStand = true
+    followConn = RunService.RenderStepped:Connect(function()
+        myRoot, myHum = getMyParts()
+        if not myRoot or not myHum then return end
+        local tRoot = getRootOf(targetPlayer)
+        if not tRoot then return end
+        local dest = tRoot.CFrame * CFrame.new(0, CFG.aboveOffset, CFG.behindDist)
+        myRoot.CFrame                  = dest
+        myRoot.AssemblyLinearVelocity  = Vector3.zero
+        myRoot.AssemblyAngularVelocity = Vector3.zero
+        local myPos   = myRoot.Position
+        local tPos    = tRoot.Position
+        local lookDir = (tPos - myPos).Unit
+        local camPos  = myPos - lookDir * CFG.camDist + Vector3.new(0, CFG.camHeight, 0)
+        camera.CFrame = CFrame.lookAt(camPos, tPos)
+    end)
+end
+
+local function startSafeMode()
+    if safeModeConn then safeModeConn:Disconnect(); safeModeConn = nil end
+    if followConn   then followConn:Disconnect();   followConn   = nil end
+    if not targetPlayer then return end
+    local myRoot, myHum = getMyParts()
+    if not myRoot or not myHum then return end
+    local safePos = Vector3.new(myRoot.Position.X, CFG.safeDepth, myRoot.Position.Z)
+    myHum.PlatformStand = true
+    myRoot.CFrame       = CFrame.new(safePos)
+    myRoot.AssemblyLinearVelocity  = Vector3.zero
+    myRoot.AssemblyAngularVelocity = Vector3.zero
+    safeModeConn = RunService.RenderStepped:Connect(function()
+        myRoot, myHum = getMyParts()
+        if myRoot then
+            myRoot.CFrame                  = CFrame.new(safePos)
+            myRoot.AssemblyLinearVelocity  = Vector3.zero
+            myRoot.AssemblyAngularVelocity = Vector3.zero
+        end
+        local tRoot = getRootOf(targetPlayer)
+        if not tRoot then return end
+        local tPos   = tRoot.Position
+        local camPos = tPos + tRoot.CFrame.LookVector * (-10) + Vector3.new(0, 6, 0)
+        camera.CFrame = CFrame.lookAt(camPos, tPos)
+    end)
+end
+
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if not followEnabled or not targetPlayer then return end
+    if safeMode then startSafeMode() else startFollow() end
+end)
+
+-- ══════════════════════════════════════
+--  GUI
+-- ══════════════════════════════════════
+local existGui = LP.PlayerGui:FindFirstChild("ShadowFollowGUI")
+if existGui then existGui:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name           = "ShadowFollowGUI"
+gui.ResetOnSpawn   = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent         = LP.PlayerGui
+
+-- 主面板
+local panel = Instance.new("Frame", gui)
+panel.Size             = UDim2.new(0, 270, 0, 0)
+panel.AutomaticSize    = Enum.AutomaticSize.Y
+panel.Position         = UDim2.new(0.5, -135, 0, 20)
+panel.BackgroundColor3 = Color3.fromRGB(10, 10, 16)
+panel.BorderSizePixel  = 0
+panel.Active           = true
+panel.Draggable        = true
+panel.ClipsDescendants = false   -- ← 关键：不裁剪，让下拉能超出面板
+do local c = Instance.new("UICorner", panel); c.CornerRadius = UDim.new(0, 12) end
+do
+    local s = Instance.new("UIStroke", panel)
+    s.Color     = Color3.fromRGB(140, 80, 255)
+    s.Thickness = 1.4
+end
+
+local panelLayout = Instance.new("UIListLayout", panel)
+panelLayout.FillDirection = Enum.FillDirection.Vertical
+panelLayout.Padding       = UDim.new(0, 0)
+panelLayout.SortOrder     = Enum.SortOrder.LayoutOrder
+
+-- 标题栏
+local titleBar = Instance.new("Frame", panel)
+titleBar.Size             = UDim2.new(1, 0, 0, 38)
+titleBar.BackgroundColor3 = Color3.fromRGB(60, 20, 140)
+titleBar.BorderSizePixel  = 0
+titleBar.LayoutOrder      = 0
+do local c = Instance.new("UICorner", titleBar); c.CornerRadius = UDim.new(0, 12) end
+local titleFill = Instance.new("Frame", titleBar)
+titleFill.Size             = UDim2.new(1, 0, 0, 12)
+titleFill.Position         = UDim2.new(0, 0, 1, -12)
+titleFill.BackgroundColor3 = Color3.fromRGB(60, 20, 140)
+titleFill.BorderSizePixel  = 0
+
+local titleLbl = Instance.new("TextLabel", titleBar)
+titleLbl.Size               = UDim2.new(1, -46, 1, 0)
+titleLbl.Position           = UDim2.new(0, 12, 0, 0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text               = "👻  替身跟随 v2.1"
+titleLbl.TextColor3         = Color3.fromRGB(255, 255, 255)
+titleLbl.TextSize           = 13
+titleLbl.Font               = Enum.Font.GothamBold
+titleLbl.TextXAlignment     = Enum.TextXAlignment.Left
+
+local minBtn = Instance.new("TextButton", titleBar)
+minBtn.Size             = UDim2.new(0, 28, 0, 24)
+minBtn.Position         = UDim2.new(1, -34, 0.5, -12)
+minBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 180)
+minBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+minBtn.Text             = "─"
+minBtn.TextSize         = 14
+minBtn.Font             = Enum.Font.GothamBold
+minBtn.BorderSizePixel  = 0
+minBtn.ZIndex           = 5
+do local c = Instance.new("UICorner", minBtn); c.CornerRadius = UDim.new(0, 6) end
+minBtn.MouseEnter:Connect(function() minBtn.BackgroundColor3 = Color3.fromRGB(110, 60, 220) end)
+minBtn.MouseLeave:Connect(function() minBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 180) end)
+
+-- 内容区
+local content = Instance.new("Frame", panel)
+content.Size             = UDim2.new(1, 0, 0, 0)
+content.AutomaticSize    = Enum.AutomaticSize.Y
+content.BackgroundTransparency = 1
+content.ClipsDescendants = false   -- ← 不裁剪
+content.LayoutOrder      = 1
+do
+    local p = Instance.new("UIPadding", content)
+    p.PaddingTop    = UDim.new(0, 12)
+    p.PaddingBottom = UDim.new(0, 14)
+    p.PaddingLeft   = UDim.new(0, 12)
+    p.PaddingRight  = UDim.new(0, 12)
+end
+local contentLayout = Instance.new("UIListLayout", content)
+contentLayout.FillDirection = Enum.FillDirection.Vertical
+contentLayout.Padding       = UDim.new(0, 8)
+contentLayout.SortOrder     = Enum.SortOrder.LayoutOrder
+
+-- ── 输入框标签 ──
+local inputLbl = Instance.new("TextLabel", content)
+inputLbl.Size               = UDim2.new(1, 0, 0, 16)
+inputLbl.BackgroundTransparency = 1
+inputLbl.Text               = "目标玩家名称（点击输入框展开列表）"
+inputLbl.TextColor3         = Color3.fromRGB(180, 140, 255)
+inputLbl.TextSize           = 11
+inputLbl.Font               = Enum.Font.GothamBold
+inputLbl.TextXAlignment     = Enum.TextXAlignment.Left
+inputLbl.LayoutOrder        = 0
+
+-- ── 输入框（独立行，不做容器）──
+local inputBox = Instance.new("TextBox", content)
+inputBox.Size               = UDim2.new(1, 0, 0, 32)
+inputBox.BackgroundColor3   = Color3.fromRGB(20, 18, 32)
+inputBox.TextColor3         = Color3.fromRGB(220, 200, 255)
+inputBox.PlaceholderText    = "输入或点击选择玩家..."
+inputBox.PlaceholderColor3  = Color3.fromRGB(80, 70, 110)
+inputBox.Text               = ""
+inputBox.TextSize           = 13
+inputBox.Font               = Enum.Font.Gotham
+inputBox.BorderSizePixel    = 0
+inputBox.ClearTextOnFocus   = false
+inputBox.ZIndex             = 2
+inputBox.LayoutOrder        = 1
+do local c = Instance.new("UICorner", inputBox); c.CornerRadius = UDim.new(0, 8) end
+do
+    local s = Instance.new("UIStroke", inputBox)
+    s.Color     = Color3.fromRGB(90, 50, 180)
+    s.Thickness = 1
+end
+do local p = Instance.new("UIPadding", inputBox); p.PaddingLeft = UDim.new(0, 8) end
+
+-- ══════════════════════════════════════
+--  下拉补全：挂到 gui 最顶层，绝对定位
+--  每帧跟随 inputBox 的屏幕位置
+-- ══════════════════════════════════════
+local dropFrame = Instance.new("Frame", gui)   -- ← 父级是 gui，不是 panel
+dropFrame.Size             = UDim2.new(0, 270, 0, 0)
+dropFrame.Position         = UDim2.new(0, 0, 0, 0)   -- 由代码实时更新
+dropFrame.BackgroundColor3 = Color3.fromRGB(18, 16, 30)
+dropFrame.BorderSizePixel  = 0
+dropFrame.ZIndex           = 50
+dropFrame.Visible          = false
+dropFrame.ClipsDescendants = true
+do local c = Instance.new("UICorner", dropFrame); c.CornerRadius = UDim.new(0, 8) end
+do
+    local s = Instance.new("UIStroke", dropFrame)
+    s.Color     = Color3.fromRGB(100, 60, 200)
+    s.Thickness = 1.2
+end
+
+local dropLayout = Instance.new("UIListLayout", dropFrame)
+dropLayout.FillDirection = Enum.FillDirection.Vertical
+dropLayout.Padding       = UDim.new(0, 2)
+dropLayout.SortOrder     = Enum.SortOrder.LayoutOrder
+do local p = Instance.new("UIPadding", dropFrame)
+    p.PaddingTop = UDim.new(0, 4); p.PaddingBottom = UDim.new(0, 4)
+    p.PaddingLeft = UDim.new(0, 4); p.PaddingRight = UDim.new(0, 4)
+end
+
+-- 每帧把下拉定位到输入框正下方
+RunService.RenderStepped:Connect(function()
+    if not dropFrame.Visible then return end
+    -- 用 inputBox 的 AbsolutePosition + AbsoluteSize 计算
+    local absPos  = inputBox.AbsolutePosition
+    local absSize = inputBox.AbsoluteSize
+    dropFrame.Position = UDim2.new(
+        0, absPos.X,
+        0, absPos.Y + absSize.Y + 4
+    )
+    dropFrame.Size = UDim2.new(0, absSize.X, 0, dropFrame.Size.Y.Offset)
+end)
+
+-- 构建/刷新下拉列表
+local function buildDrop(filter)
+    -- 清旧项
+    for _, child in ipairs(dropFrame:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+
+    local trimmed = (filter or ""):match("^%s*(.-)%s*$"):lower()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            if trimmed == ""
+                or p.Name:lower():find(trimmed, 1, true)
+                or p.DisplayName:lower():find(trimmed, 1, true)
+            then
+                table.insert(list, p)
+            end
+        end
+    end
+
+    if #list == 0 then
+        dropFrame.Visible = false
+        return
+    end
+
+    local ROW_H = 30
+    for i, p in ipairs(list) do
+        local displayText = p.Name
+        if p.DisplayName ~= p.Name then
+            displayText = p.Name .. "  (" .. p.DisplayName .. ")"
+        end
+
+        local item = Instance.new("TextButton", dropFrame)
+        item.Size             = UDim2.new(1, 0, 0, ROW_H)
+        item.BackgroundColor3 = Color3.fromRGB(24, 20, 40)
+        item.TextColor3       = Color3.fromRGB(210, 190, 255)
+        item.Text             = displayText
+        item.TextSize         = 12
+        item.Font             = Enum.Font.Gotham
+        item.BorderSizePixel  = 0
+        item.TextXAlignment   = Enum.TextXAlignment.Left
+        item.TextTruncate     = Enum.TextTruncate.AtEnd
+        item.ZIndex           = 51
+        item.LayoutOrder      = i
+        do local c = Instance.new("UICorner", item); c.CornerRadius = UDim.new(0, 5) end
+        do local pd = Instance.new("UIPadding", item); pd.PaddingLeft = UDim.new(0, 10) end
+
+        item.MouseEnter:Connect(function()
+            item.BackgroundColor3 = Color3.fromRGB(55, 38, 90)
+        end)
+        item.MouseLeave:Connect(function()
+            item.BackgroundColor3 = Color3.fromRGB(24, 20, 40)
+        end)
+        item.MouseButton1Click:Connect(function()
+            inputBox.Text     = p.Name
+            dropFrame.Visible = false
+        end)
+    end
+
+    -- 最多显示6行，超出可滚动（Roblox不原生支持滚动，限高即可）
+    local maxRows = math.min(#list, 6)
+    dropFrame.Size = UDim2.new(
+        dropFrame.Size.X.Scale, dropFrame.Size.X.Offset,
+        0, maxRows * ROW_H + 8
+    )
+    dropFrame.Visible = true
+end
+
+-- 输入框聚焦 → 展开全部玩家
+inputBox.Focused:Connect(function()
+    buildDrop(inputBox.Text)
+end)
+
+-- 输入内容变化 → 实时过滤
+inputBox:GetPropertyChangedSignal("Text"):Connect(function()
+    if dropFrame.Visible then
+        buildDrop(inputBox.Text)
+    end
+end)
+
+-- 失焦 → 延迟关闭（让点击事件先触发）
+inputBox.FocusLost:Connect(function()
+    task.delay(0.18, function()
+        dropFrame.Visible = false
+    end)
+end)
+
+-- ── 偏移参数行 ──
+local paramRow = Instance.new("Frame", content)
+paramRow.Size             = UDim2.new(1, 0, 0, 26)
+paramRow.BackgroundTransparency = 1
+paramRow.LayoutOrder      = 2
+local paramLayout = Instance.new("UIListLayout", paramRow)
+paramLayout.FillDirection = Enum.FillDirection.Horizontal
+paramLayout.Padding       = UDim.new(0, 6)
+
+local function makeParamBox(placeholder, default)
+    local box = Instance.new("TextBox", paramRow)
+    box.Size             = UDim2.new(0, 122, 1, 0)
+    box.BackgroundColor3 = Color3.fromRGB(20, 18, 32)
+    box.TextColor3       = Color3.fromRGB(200, 180, 255)
+    box.PlaceholderText  = placeholder
+    box.Text             = tostring(default)
+    box.TextSize         = 11
+    box.Font             = Enum.Font.Gotham
+    box.BorderSizePixel  = 0
+    box.ClearTextOnFocus = false
+    do local c = Instance.new("UICorner", box); c.CornerRadius = UDim.new(0, 6) end
+    do local p = Instance.new("UIPadding", box); p.PaddingLeft = UDim.new(0, 6) end
+    return box
+end
+
+local behindBox = makeParamBox("身后距离(米)", CFG.behindDist)
+local aboveBox  = makeParamBox("悬浮高度(米)", CFG.aboveOffset)
+
+-- ── 主按钮行 ──
+local btnRow = Instance.new("Frame", content)
+btnRow.Size             = UDim2.new(1, 0, 0, 34)
+btnRow.BackgroundTransparency = 1
+btnRow.LayoutOrder      = 3
+local btnLayout = Instance.new("UIListLayout", btnRow)
+btnLayout.FillDirection = Enum.FillDirection.Horizontal
+btnLayout.Padding       = UDim.new(0, 6)
+
+local function makeBtn(parent, text, color, w)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size             = UDim2.new(0, w, 1, 0)
+    btn.BackgroundColor3 = color
+    btn.TextColor3       = Color3.fromRGB(255, 255, 255)
+    btn.Text             = text
+    btn.TextSize         = 11
+    btn.Font             = Enum.Font.GothamBold
+    btn.BorderSizePixel  = 0
+    do local c = Instance.new("UICorner", btn); c.CornerRadius = UDim.new(0, 8) end
+    local orig = color
+    btn.MouseEnter:Connect(function()
+        btn.BackgroundColor3 = Color3.new(
+            math.min(orig.R+.15,1), math.min(orig.G+.15,1), math.min(orig.B+.15,1))
+    end)
+    btn.MouseLeave:Connect(function() btn.BackgroundColor3 = orig end)
+    return btn
+end
+
+local confirmBtn = makeBtn(btnRow, "✅ 开始跟随", Color3.fromRGB(60, 30, 160), 128)
+local stopBtn    = makeBtn(btnRow, "⛔ 停止",     Color3.fromRGB(130, 30, 55),  80)
+
+-- ── 安全模式行 ──
+local safeRow = Instance.new("Frame", content)
+safeRow.Size             = UDim2.new(1, 0, 0, 34)
+safeRow.BackgroundTransparency = 1
+safeRow.LayoutOrder      = 4
+local safeLayout = Instance.new("UIListLayout", safeRow)
+safeLayout.FillDirection = Enum.FillDirection.Horizontal
+safeLayout.Padding       = UDim.new(0, 6)
+
+local safeOnBtn  = makeBtn(safeRow, "🛡 安全观战 开", Color3.fromRGB(20, 110, 80), 128)
+local safeOffBtn = makeBtn(safeRow, "🔓 安全模式 关", Color3.fromRGB(100, 60, 20), 120)
+
+-- ── 状态栏 ──
+local statusLbl = Instance.new("TextLabel", content)
+statusLbl.Size               = UDim2.new(1, 0, 0, 34)
+statusLbl.BackgroundColor3   = Color3.fromRGB(16, 14, 26)
+statusLbl.TextColor3         = Color3.fromRGB(160, 130, 220)
+statusLbl.Text               = "状态: 待机"
+statusLbl.TextSize           = 11
+statusLbl.Font               = Enum.Font.Gotham
+statusLbl.TextXAlignment     = Enum.TextXAlignment.Left
+statusLbl.TextWrapped        = true
+statusLbl.BorderSizePixel    = 0
+statusLbl.LayoutOrder        = 5
+do local c = Instance.new("UICorner", statusLbl); c.CornerRadius = UDim.new(0, 6) end
+do local p = Instance.new("UIPadding", statusLbl)
+    p.PaddingLeft = UDim.new(0, 8); p.PaddingTop = UDim.new(0, 4) end
+
+local function setStatus(text, color)
+    statusLbl.Text       = "状态: " .. text
+    statusLbl.TextColor3 = color or Color3.fromRGB(160, 130, 220)
+end
+
+-- ══════════════════════════════════════
+--  按钮逻辑
+-- ══════════════════════════════════════
+local function resolveTarget()
+    local name = inputBox.Text:match("^%s*(.-)%s*$")
+    if name == "" then
+        setStatus("⚠ 请选择或输入玩家名称", Color3.fromRGB(255, 180, 60))
+        return nil
+    end
+    local b = tonumber(behindBox.Text); if b then CFG.behindDist  = b end
+    local a = tonumber(aboveBox.Text);  if a then CFG.aboveOffset = a end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name:lower() == name:lower() or p.DisplayName:lower() == name:lower() then
+            if p == LP then
+                setStatus("❌ 不能跟随自己", Color3.fromRGB(255, 80, 80))
+                return nil
+            end
+            return p
+        end
+    end
+    setStatus("❌ 未找到玩家: " .. name, Color3.fromRGB(255, 80, 80))
+    return nil
+end
+
+confirmBtn.MouseButton1Click:Connect(function()
+    local found = resolveTarget()
+    if not found then return end
+    stopAll()
+    targetPlayer  = found
+    followEnabled = true
+    safeMode      = false
+    startFollow()
+    setStatus("👻 跟随中: " .. found.Name, Color3.fromRGB(160, 100, 255))
+    found.CharacterRemoving:Connect(function()
+        if targetPlayer == found and not safeMode then
+            stopAll()
+            setStatus("⚠ 目标消失，已停止", Color3.fromRGB(255, 180, 60))
+        end
+    end)
+end)
+
+stopBtn.MouseButton1Click:Connect(function()
+    stopAll()
+    setStatus("⛔ 已停止", Color3.fromRGB(180, 80, 80))
+end)
+
+safeOnBtn.MouseButton1Click:Connect(function()
+    local found = targetPlayer or resolveTarget()
+    if not found then return end
+    stopAll()
+    targetPlayer  = found
+    followEnabled = true
+    safeMode      = true
+    startSafeMode()
+    setStatus("🛡 安全观战: " .. found.Name, Color3.fromRGB(80, 200, 140))
+    found.CharacterRemoving:Connect(function()
+        if targetPlayer == found and safeMode then
+            setStatus("⏳ 目标消失，等待重生...", Color3.fromRGB(200, 160, 60))
+        end
+    end)
+    found.CharacterAdded:Connect(function()
+        if targetPlayer == found and safeMode then
+            task.wait(0.5)
+            startSafeMode()
+            setStatus("🛡 安全观战: " .. found.Name, Color3.fromRGB(80, 200, 140))
+        end
+    end)
+end)
+
+safeOffBtn.MouseButton1Click:Connect(function()
+    if not followEnabled then
+        setStatus("⚠ 未在跟随状态", Color3.fromRGB(255, 180, 60))
+        return
+    end
+    local prev = targetPlayer
+    stopAll()
+    if prev then
+        targetPlayer  = prev
+        followEnabled = true
+        safeMode      = false
+        startFollow()
+        setStatus("👻 切回跟随: " .. prev.Name, Color3.fromRGB(160, 100, 255))
+    end
+end)
+
+-- ══════════════════════════════════════
+--  最小化
+-- ══════════════════════════════════════
+local isMinimized = false
+minBtn.MouseButton1Click:Connect(function()
+    isMinimized        = not isMinimized
+    content.Visible    = not isMinimized
+    titleFill.Visible  = not isMinimized
+    dropFrame.Visible  = false   -- 收起时顺手关掉下拉
+    minBtn.Text        = isMinimized and "□" or "─"
+end)
