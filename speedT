@@ -1,0 +1,291 @@
+-- ============================================
+-- 移速修改脚本
+-- GUI滑块调节 + 快捷键微调
+-- 放入 StarterPlayer → StarterPlayerScripts
+-- ============================================
+
+local Players          = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ============================================
+-- 配置
+-- ============================================
+local CONFIG = {
+    MIN_SPEED    = 0,    -- 最小移速
+    MAX_SPEED    = 150,  -- 最大移速
+    DEFAULT_SPEED = 16,  -- Roblox 默认移速
+    STEP         = 5,    -- 快捷键每次增减幅度
+    KEY_UP       = Enum.KeyCode.Period,       -- 加速键  [.]
+    KEY_DOWN     = Enum.KeyCode.Comma,        -- 减速键  [,]
+    KEY_RESET    = Enum.KeyCode.Slash,        -- 重置键  [/]
+}
+
+-- ============================================
+-- 当前移速
+-- ============================================
+local currentSpeed = CONFIG.DEFAULT_SPEED
+
+-- ============================================
+-- 应用移速（每帧持续写入，防止游戏覆盖）
+-- ============================================
+RunService.Heartbeat:Connect(function()
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = currentSpeed
+    end
+end)
+
+-- 角色重生后保持移速
+player.CharacterAdded:Connect(function(char)
+    local hum = char:WaitForChild("Humanoid")
+    hum.WalkSpeed = currentSpeed
+end)
+
+-- ============================================
+-- 创建 GUI
+-- ============================================
+local screenGui = playerGui:FindFirstChild("SpeedGui")
+if screenGui then screenGui:Destroy() end
+
+screenGui = Instance.new("ScreenGui")
+screenGui.Name           = "SpeedGui"
+screenGui.ResetOnSpawn   = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent         = playerGui
+
+local PANEL_W = 210
+local PANEL_H = 115
+
+local panel = Instance.new("Frame")
+panel.Size             = UDim2.new(0, PANEL_W, 0, PANEL_H)
+panel.Position         = UDim2.new(0, 10, 0.5, 50)   -- 默认左侧中部
+panel.BackgroundColor3 = Color3.fromRGB(10, 18, 12)
+panel.BackgroundTransparency = 0.1
+panel.BorderSizePixel  = 0
+panel.Parent           = screenGui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+
+local stroke = Instance.new("UIStroke")
+stroke.Color        = Color3.fromRGB(50, 200, 80)
+stroke.Transparency = 0.45
+stroke.Thickness    = 1
+stroke.Parent       = panel
+
+-- 顶部绿色光条
+local topBar = Instance.new("Frame")
+topBar.Size             = UDim2.new(1, 0, 0, 2)
+topBar.BackgroundColor3 = Color3.fromRGB(50, 210, 80)
+topBar.BorderSizePixel  = 0
+topBar.ZIndex           = 2
+topBar.Parent           = panel
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
+
+-- 标题栏（拖动区域）
+local titleBar = Instance.new("TextButton")
+titleBar.Size               = UDim2.new(1, 0, 0, 24)
+titleBar.Position           = UDim2.new(0, 0, 0, 4)
+titleBar.BackgroundTransparency = 1
+titleBar.Text               = ""
+titleBar.ZIndex             = 3
+titleBar.Parent             = panel
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size              = UDim2.new(1, -8, 1, 0)
+titleLabel.Position          = UDim2.new(0, 8, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text              = "⚡ 移速调节"
+titleLabel.TextColor3        = Color3.fromRGB(80, 220, 100)
+titleLabel.TextSize          = 12
+titleLabel.Font              = Enum.Font.GothamBold
+titleLabel.TextXAlignment    = Enum.TextXAlignment.Left
+titleLabel.ZIndex            = 4
+titleLabel.Parent            = titleBar
+
+-- 当前移速显示
+local speedDisplay = Instance.new("TextLabel")
+speedDisplay.Size               = UDim2.new(1, -8, 0, 16)
+speedDisplay.Position           = UDim2.new(0, 8, 0, 30)
+speedDisplay.BackgroundTransparency = 1
+speedDisplay.Text               = "移速：16  (默认 16)"
+speedDisplay.TextColor3         = Color3.fromRGB(180, 240, 190)
+speedDisplay.TextSize           = 11
+speedDisplay.Font               = Enum.Font.Gotham
+speedDisplay.TextXAlignment     = Enum.TextXAlignment.Left
+speedDisplay.ZIndex             = 3
+speedDisplay.Parent             = panel
+
+-- 滑块轨道
+local sliderTrack = Instance.new("Frame")
+sliderTrack.Size             = UDim2.new(1, -16, 0, 8)
+sliderTrack.Position         = UDim2.new(0, 8, 0, 52)
+sliderTrack.BackgroundColor3 = Color3.fromRGB(20, 45, 25)
+sliderTrack.BorderSizePixel  = 0
+sliderTrack.ZIndex           = 3
+sliderTrack.Parent           = panel
+Instance.new("UICorner", sliderTrack).CornerRadius = UDim.new(1, 0)
+
+local sliderFill = Instance.new("Frame")
+sliderFill.Size             = UDim2.new(currentSpeed / CONFIG.MAX_SPEED, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(50, 210, 80)
+sliderFill.BorderSizePixel  = 0
+sliderFill.ZIndex           = 4
+sliderFill.Parent           = sliderTrack
+Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1, 0)
+
+local sliderKnob = Instance.new("TextButton")
+sliderKnob.Size             = UDim2.new(0, 18, 0, 18)
+sliderKnob.AnchorPoint      = Vector2.new(0.5, 0.5)
+sliderKnob.Position         = UDim2.new(currentSpeed / CONFIG.MAX_SPEED, 0, 0.5, 0)
+sliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+sliderKnob.BorderSizePixel  = 0
+sliderKnob.Text             = ""
+sliderKnob.ZIndex           = 5
+sliderKnob.Parent           = sliderTrack
+Instance.new("UICorner", sliderKnob).CornerRadius = UDim.new(1, 0)
+
+-- 重置按钮
+local resetBtn = Instance.new("TextButton")
+resetBtn.Size             = UDim2.new(1, -16, 0, 26)
+resetBtn.Position         = UDim2.new(0, 8, 0, 80)
+resetBtn.BackgroundColor3 = Color3.fromRGB(25, 60, 30)
+resetBtn.BorderSizePixel  = 0
+resetBtn.Text             = "重置默认移速 [/]"
+resetBtn.TextColor3       = Color3.fromRGB(160, 230, 170)
+resetBtn.TextSize         = 12
+resetBtn.Font             = Enum.Font.GothamBold
+resetBtn.AutoButtonColor  = false
+resetBtn.ZIndex           = 3
+resetBtn.Parent           = panel
+Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 7)
+
+-- ============================================
+-- 更新 UI 和移速
+-- ============================================
+local function applySpeed(speed)
+    currentSpeed = math.clamp(math.floor(speed + 0.5), CONFIG.MIN_SPEED, CONFIG.MAX_SPEED)
+    local ratio  = currentSpeed / CONFIG.MAX_SPEED
+
+    sliderFill.Size     = UDim2.new(ratio, 0, 1, 0)
+    sliderKnob.Position = UDim2.new(ratio, 0, 0.5, 0)
+
+    local tag = currentSpeed == CONFIG.DEFAULT_SPEED and "  (默认)" or ""
+    speedDisplay.Text = "移速：" .. currentSpeed .. tag
+
+    -- 颜色随速度变化：绿→黄→红
+    local r = math.clamp(currentSpeed / CONFIG.MAX_SPEED * 2, 0, 1)
+    local g = math.clamp(2 - currentSpeed / CONFIG.MAX_SPEED * 2, 0, 1)
+    local fillColor = Color3.new(r * 0.9, g * 0.85, 0.1)
+    sliderFill.BackgroundColor3 = fillColor
+    stroke.Color                = fillColor
+    topBar.BackgroundColor3     = fillColor
+    titleLabel.TextColor3       = fillColor
+end
+
+-- 初始化
+applySpeed(currentSpeed)
+
+-- ============================================
+-- 滑块拖动逻辑
+-- ============================================
+local sliding = false
+
+local function updateSliderFromX(inputX)
+    local absX  = sliderTrack.AbsolutePosition.X
+    local absW  = sliderTrack.AbsoluteSize.X
+    local ratio = math.clamp((inputX - absX) / absW, 0, 1)
+    applySpeed(ratio * CONFIG.MAX_SPEED)
+end
+
+sliderKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        sliding = true
+    end
+end)
+sliderTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        sliding = true
+        updateSliderFromX(input.Position.X)
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if not sliding then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch then
+        updateSliderFromX(input.Position.X)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        sliding = false
+    end
+end)
+
+-- ============================================
+-- 重置按钮
+-- ============================================
+resetBtn.Activated:Connect(function()
+    applySpeed(CONFIG.DEFAULT_SPEED)
+    resetBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 60)
+    task.delay(0.2, function()
+        if resetBtn and resetBtn.Parent then
+            resetBtn.BackgroundColor3 = Color3.fromRGB(25, 60, 30)
+        end
+    end)
+end)
+
+-- ============================================
+-- 键盘快捷键
+-- ============================================
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == CONFIG.KEY_UP then
+        applySpeed(currentSpeed + CONFIG.STEP)
+    elseif input.KeyCode == CONFIG.KEY_DOWN then
+        applySpeed(currentSpeed - CONFIG.STEP)
+    elseif input.KeyCode == CONFIG.KEY_RESET then
+        applySpeed(CONFIG.DEFAULT_SPEED)
+    end
+end)
+
+-- ============================================
+-- 面板拖动
+-- ============================================
+local dragging, dragStart, startPos = false, Vector2.zero, panel.Position
+
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging  = true
+        dragStart = Vector2.new(input.Position.X, input.Position.Y)
+        startPos  = panel.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch then
+        local d = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+        panel.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + d.X,
+            startPos.Y.Scale, startPos.Y.Offset + d.Y
+        )
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+print("[移速调节] 已加载 · [,] 减速  [.] 加速  [/] 重置")
