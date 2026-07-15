@@ -45,6 +45,9 @@ local CFG = {
     sideDashDuration  = 0.2,            -- 侧闪持续(秒)
     fleeDist          = 15,             -- 敌方布娃娃时撤退距离(米)
     threatCheckRate   = 0.5,            -- 威胁扫描间隔(秒)，不要太频繁
+    standbyDepth      = 120,            -- 地下隐身待机深度(米，相对地面/当前位置向下)
+    standbyNoclip     = true,           -- 待机时关闭碰撞，避免被地面顶回
+    standbyLocalHide  = true,           -- 本地隐藏模型/名字，减少被看到的概率
 }
 
 -- ══════════════════════════════════════
@@ -84,9 +87,12 @@ local skillIdx        = 1
 local CONN = {}
 local localDiedConn = nil
 
--- 悬浮待机状态
-local isStandby         = false   -- true = 悬浮待机中，暂停所有跟随
-local standbyAnchor     = nil     -- 待机时锁定的地下位置(Vector3)
+-- 地下隐身待机状态
+local isStandby         = false   -- true = 地下隐身待机中，暂停所有跟随
+local standbyAnchor     = nil     -- 待机时锁定的地下位置(CFrame)
+local standbyAutoRotate = nil     -- 进入待机前的自动转向状态
+local standbySavedParts = {}      -- 待机前各部件碰撞/透明度备份
+local standbyDisplayType = nil    -- 待机前名字显示距离类型
 
 -- 主人动画双击检测
 local masterAnimCount   = 0       -- 当前窗口内检测到的动画触发次数
@@ -168,6 +174,201 @@ local function stopAttacking()
     isAttacking = false
 end
 
+local function getStandbyCFrame(mRoot)
+    -- 目标：真正进入地下隐身挂机点，而不是卡在地面上方。
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = character and { character } or {}
+    params.IgnoreWater = true
+
+    local origin = mRoot.Position + Vector3.new(0, 25, 0)
+    local result = workspace:Raycast(origin, Vector3.new(0, -500, 0), params)
+
+    local groundY = mRoot.Position.Y
+    if result then
+        groundY = result.Position.Y
+    elseif humanoid then
+        -- 射线没命中时，用当前站立高度估算地面
+        groundY = mRoot.Position.Y - (humanoid.HipHeight + (mRoot.Size.Y * 0.5))
+    end
+
+    local depth = math.max(tonumber(CFG.standbyDepth) or 120, 40)
+    local hoverPosition = Vector3.new(
+        mRoot.Position.X,
+        groundY - depth,
+        mRoot.Position.Z
+    )
+    return CFrame.new(hoverPosition) * mRoot.CFrame.Rotation
+end
+
+local function applyStandbyStealth(enable)
+    if not character then return end
+
+    if enable then
+        standbySavedParts = {}
+        for _, inst in ipairs(character:GetDescendants()) do
+            if inst:IsA("BasePart") then
+                standbySavedParts[inst] = {
+                    CanCollide = inst.CanCollide,
+                    CanQuery = inst.CanQuery,
+                    CanTouch = inst.CanTouch,
+                    Massless = inst.Massless,
+                    Transparency = inst.Transparency,
+                    LocalTransparencyModifier = inst.LocalTransparencyModifier,
+                }
+                if CFG.standbyNoclip ~= false then
+                    inst.CanCollide = false
+                    inst.CanQuery = false
+                    inst.CanTouch = false
+                    inst.Massless = true
+                end
+                if CFG.standbyLocalHide ~= false then
+                    -- LocalTransparencyModifier 只影响本地渲染，退出时恢复
+                    inst.LocalTransparencyModifier = 1
+                end
+            elseif inst:IsA("Decal") or inst:IsA("Texture") then
+                standbySavedParts[inst] = {
+                    Transparency = inst.Transparency,
+                }
+                if CFG.standbyLocalHide ~= false then
+                    inst.Transparency = 1
+                end
+            elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Fire") or inst:IsA("Smoke") or inst:IsA("Sparkles") then
+                standbySavedParts[inst] = {
+                    Enabled = inst.Enabled,
+                }
+                if CFG.standbyLocalHide ~= false then
+                    inst.Enabled = false
+                end
+            end
+        end
+
+        if humanoid then
+            standbyDisplayType = humanoid.DisplayDistanceType
+            pcall(function()
+                humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+                humanoid.NameDisplayDistance = 0
+                humanoid.HealthDisplayDistance = 0
+            end)
+        end
+
+        -- 尽量隐藏默认名字/血条 Billboard
+        pcall(function()
+            local head = character:FindFirstChild("Head")
+            if head then
+                for _, gui in ipairs(head:GetChildren()) do
+                    if gui:IsA("BillboardGui") then
+                        standbySavedParts[gui] = { Enabled = gui.Enabled }
+                        gui.Enabled = false
+                    end
+                end
+            end
+        end)
+    else
+        for inst, saved in pairs(standbySavedParts) do
+            if inst and inst.Parent then
+                pcall(function()
+                    if inst:IsA("BasePart") then
+                        if saved.CanCollide ~= nil then inst.CanCollide = saved.CanCollide end
+                        if saved.CanQuery ~= nil then inst.CanQuery = saved.CanQuery end
+                        if saved.CanTouch ~= nil then inst.CanTouch = saved.CanTouch end
+                        if saved.Massless ~= nil then inst.Massless = saved.Massless end
+                        if saved.Transparency ~= nil then inst.Transparency = saved.Transparency end
+                        if saved.LocalTransparencyModifier ~= nil then
+                            inst.LocalTransparencyModifier = saved.LocalTransparencyModifier
+                        end
+                    elseif inst:IsA("Decal") or inst:IsA("Texture") then
+                        if saved.Transparency ~= nil then inst.Transparency = saved.Transparency end
+                    elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Fire") or inst:IsA("Smoke") or inst:IsA("Sparkles") then
+                        if saved.Enabled ~= nil then inst.Enabled = saved.Enabled end
+                    elseif inst:IsA("BillboardGui") then
+                        if saved.Enabled ~= nil then inst.Enabled = saved.Enabled end
+                    end
+                end)
+            end
+        end
+        standbySavedParts = {}
+
+        if humanoid and standbyDisplayType ~= nil then
+            pcall(function()
+                humanoid.DisplayDistanceType = standbyDisplayType
+            end)
+        end
+        standbyDisplayType = nil
+    end
+end
+
+local function lockStandbyPose(mRoot)
+    if not mRoot or not humanoid then return end
+    humanoid:Move(Vector3.zero, false)
+    humanoid.AutoRotate = false
+    humanoid.PlatformStand = true
+    pcall(function()
+        humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+    end)
+    mRoot.AssemblyLinearVelocity = Vector3.zero
+    mRoot.AssemblyAngularVelocity = Vector3.zero
+    mRoot.Anchored = true
+    if standbyAnchor then
+        mRoot.CFrame = standbyAnchor
+    end
+end
+
+local function enterStandby()
+    local mRoot = character and character:FindFirstChild("HumanoidRootPart")
+    if not mRoot or not humanoid then return false end
+
+    standbyAnchor = getStandbyCFrame(mRoot)
+    standbyAutoRotate = humanoid.AutoRotate
+    isStandby = true
+    stopAttacking()
+    mode = "guard"
+    currentEnemy = nil
+    currentEnemyChar = nil
+
+    pcall(function()
+        applyStandbyStealth(true)
+        lockStandbyPose(mRoot)
+        -- 再写一次，抵消部分服务器/物理回写
+        task.defer(function()
+            if isStandby and mRoot and mRoot.Parent then
+                pcall(function() lockStandbyPose(mRoot) end)
+            end
+        end)
+    end)
+    return true
+end
+
+local function exitStandby(destination)
+    local mRoot = character and character:FindFirstChild("HumanoidRootPart")
+    isStandby = false
+
+    pcall(function()
+        if mRoot then
+            mRoot.AssemblyLinearVelocity = Vector3.zero
+            mRoot.AssemblyAngularVelocity = Vector3.zero
+            if destination then
+                mRoot.CFrame = destination
+            end
+            mRoot.Anchored = false
+        end
+        applyStandbyStealth(false)
+        if humanoid then
+            humanoid.PlatformStand = false
+            if standbyAutoRotate ~= nil then
+                humanoid.AutoRotate = standbyAutoRotate
+            else
+                humanoid.AutoRotate = true
+            end
+            pcall(function()
+                humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end)
+        end
+    end)
+
+    standbyAnchor = nil
+    standbyAutoRotate = nil
+end
 local function attackLoop()
     if isAttacking then return end
     isAttacking = true
@@ -345,13 +546,7 @@ guardAndCombat = function()
     tpDetected       = false
     -- 待机状态重置（重生后解除待机）
     if isStandby then
-        isStandby     = false
-        standbyAnchor = nil
-        pcall(function()
-            if humanoid then humanoid.PlatformStand = false end
-            local mRoot = character and character:FindFirstChild("HumanoidRootPart")
-            if mRoot then mRoot.Anchored = false end
-        end)
+        exitStandby()
     end
     masterAnimCount    = 0
     masterAnimTimer    = 0
@@ -437,12 +632,7 @@ guardAndCombat = function()
                     if mRoot and masterRoot then
                         -- 退出待机状态
                         if isStandby then
-                            isStandby     = false
-                            standbyAnchor = nil
-                            pcall(function()
-                                mRoot.Anchored = false
-                                humanoid.PlatformStand = false
-                            end)
+                            exitStandby()
                         end
                         local offset = masterRoot.CFrame.RightVector * 2
                         pcall(function()
@@ -454,35 +644,19 @@ guardAndCombat = function()
                 elseif masterAnimCount == 2 then
                     -- ── 第二次：切换待机/恢复 ──
                     if not isStandby then
-                        -- 进入待机：传送到地下并锚定，完全脱离物理
-                        local mRoot = character and character:FindFirstChild("HumanoidRootPart")
-                        if mRoot then
-                            local underPos = mRoot.Position + Vector3.new(0, -100, 0)
-                            standbyAnchor = underPos
-                            isStandby     = true
-                            stopAttacking()
-                            pcall(function()
-                                humanoid.PlatformStand = false
-                                mRoot.Anchored = true
-                                mRoot.CFrame   = CFrame.new(underPos)
-                            end)
-                            setStatus("状态: 🌙 地下待机中", Color3.fromRGB(180, 130, 255))
+                        -- 进入待机：沉入地下隐身点并持续锁定。
+                        if enterStandby() then
+                            setStatus("状态: 🌙 地下隐身待机中", Color3.fromRGB(180, 130, 255))
                         end
                     else
                         -- 退出待机：解锁并传送回主人身边
-                        isStandby     = false
-                        standbyAnchor = nil
                         local mRoot      = character and character:FindFirstChild("HumanoidRootPart")
                         local masterRoot = masterChar and masterChar:FindFirstChild("HumanoidRootPart")
-                        pcall(function()
-                            if mRoot then mRoot.Anchored = false end
-                            humanoid.PlatformStand = false
-                        end)
                         if mRoot and masterRoot then
                             local offset = masterRoot.CFrame.RightVector * 2
-                            pcall(function()
-                                mRoot.CFrame = CFrame.new(masterRoot.Position + offset)
-                            end)
+                            exitStandby(CFrame.new(masterRoot.Position + offset))
+                        else
+                            exitStandby()
                         end
                         setStatus("状态: 🛡 恢复守卫", Color3.fromRGB(100, 200, 255))
                     end
@@ -503,10 +677,16 @@ guardAndCombat = function()
         local mRoot = character and character:FindFirstChild("HumanoidRootPart")
         if not mRoot then return end
 
-        -- ── 地下待机：已Anchored锁定，只需保持CFrame不被其他逻辑干扰 ──
+        -- ── 地下隐身待机：每帧锁回地下锚点，并维持无碰撞/隐藏 ──
         if isStandby then
             stopAttacking()
-            -- Anchored已锁定位置，无需每帧强设CFrame，直接return即可
+            pcall(function()
+                -- 若角色部件被游戏重建，补一次隐身/无碰撞
+                if next(standbySavedParts) == nil then
+                    applyStandbyStealth(true)
+                end
+                lockStandbyPose(mRoot)
+            end)
             return
         end
 
@@ -618,6 +798,11 @@ end
 -- ══════════════════════════════════════
 local function onLocalDeath()
     disconnectAll(); stopAttacking()
+    isStandby = false
+    standbyAnchor = nil
+    standbyAutoRotate = nil
+    standbySavedParts = {}
+    standbyDisplayType = nil
     setStatus("状态: 💫 重生中...", Color3.fromRGB(160, 160, 160))
     -- 不用 :Wait()，改用事件监听，避免角色已加载时永远挂起
     if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
@@ -734,6 +919,7 @@ local function createGUI()
             guardAndCombat()
         else
             disconnectAll(); stopAttacking()
+            if isStandby then exitStandby() end
             setStatus("状态: ⏸ 已暂停", Color3.fromRGB(160,160,160))
         end
     end)
@@ -749,7 +935,7 @@ local function createGUI()
     RunService.Heartbeat:Connect(function()
         if modeLabel then
             if isStandby then
-                modeLabel.Text      = "模式: 🌙 悬浮待机"
+                modeLabel.Text      = "模式: 🌙 地下隐身待机"
                 modeLabel.TextColor3= Color3.fromRGB(180, 130, 255)
             elseif mode == "guard" then
                 modeLabel.Text      = "模式: 🛡 守卫跟随"
