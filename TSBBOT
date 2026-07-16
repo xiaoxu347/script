@@ -22,6 +22,8 @@ local CFG = {
         "yaoshen61",
         "yaoshen8",
         "zXimpy0",
+        "SEFSGH51",
+        "YUNDAF6"
     },
     guardRadius       = 80,            -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
     masterFollowDist  = 10,              -- 跟随主人时保持的距离(米)
