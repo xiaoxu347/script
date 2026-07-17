@@ -1,2 +1,2 @@
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Cyborg883/CombatGUI/refs/heads/main/TSBCombatGUI"))()
-loadstring(game:HttpGet("https://raw.githubusercontent.com/xiaoxu347/script/refs/heads/main/TSBBOT2"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/xiaoxu347/script/refs/heads/main/TSBBOT2.txt"))()
