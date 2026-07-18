@@ -22,6 +22,8 @@ local CFG = {
         "yaoshen61",
         "yaoshen8",
         "zXimpy0",
+        "YUNDAF6",
+        "SEFSGH51"
     },
     guardRadius       = 140,           -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
     guardRadiusBoosted= 280,           -- 大招确认开启后的临时守卫范围
