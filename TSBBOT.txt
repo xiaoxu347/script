@@ -62,7 +62,8 @@ local CFG = {
     counterRange      = 26,
     counterGuardTime  = 0.3,             -- F防御按住时间
     counterAttackTime = 0.08,            -- 防御后的快速普攻按下时间
-    sustainedGuardAnimId = "7815618175", -- 检测到该目标动画时持续防御直到动画结束
+    chainedGuardStartAnimId = "13362587853", -- 防御链起点：检测后持续按住F
+    chainedGuardEndAnimIds = { "13365849295", "14516273501" }, -- 任一收尾动画结束后反击
     reactiveDashAnimId= "10480793962",  -- 触发左侧瞬移冲刺的目标动画
     reactiveDashOffset= 8,               -- 瞬移到目标左侧的距离
     teleportAnimId    = "10470389827",  -- 触发瞬移的自身动画ID
@@ -122,6 +123,9 @@ local counterAnimDetected = false
 local counterTriggeredForAnimation = false
 local counterGeneration = 0
 local sustainedGuardActive = false
+local chainedGuardActive = false
+local chainedGuardEndDetected = false
+local chainedGuardCounterReady = false
 local reactiveDashAnimDetected = false
 local reactiveDashTriggered = false
 local ultimateActive = false
@@ -229,6 +233,9 @@ local function cancelCounterAttack()
     counterAnimDetected = false
     counterTriggeredForAnimation = false
     sustainedGuardActive = false
+    chainedGuardActive = false
+    chainedGuardEndDetected = false
+    chainedGuardCounterReady = false
     reactiveDashAnimDetected = false
     reactiveDashTriggered = false
     releaseCounterGuard(true)
@@ -1107,6 +1114,9 @@ local function enterCombatMode(enemyPlayer)
                 or (ultimateActive and not ultimateSkillsReady) then
                 counterAnimDetected = false
                 counterTriggeredForAnimation = false
+                chainedGuardActive = false
+                chainedGuardEndDetected = false
+                chainedGuardCounterReady = false
                 setSustainedGuard(false)
                 reactiveDashAnimDetected = false
                 reactiveDashTriggered = false
@@ -1118,13 +1128,45 @@ local function enterCombatMode(enemyPlayer)
             if not mRoot or not eRoot then
                 counterAnimDetected = false
                 counterTriggeredForAnimation = false
+                chainedGuardActive = false
+                chainedGuardEndDetected = false
+                chainedGuardCounterReady = false
                 setSustainedGuard(false)
                 reactiveDashAnimDetected = false
                 reactiveDashTriggered = false
                 return
             end
 
-            setSustainedGuard(animHasId(eAnimator, CFG.sustainedGuardAnimId))
+            local chainedStartFound = animHasId(eAnimator, CFG.chainedGuardStartAnimId)
+            local chainedEndFound = false
+            for _, animationId in ipairs(CFG.chainedGuardEndAnimIds) do
+                if animHasId(eAnimator, animationId) then
+                    chainedEndFound = true
+                    break
+                end
+            end
+
+            if chainedStartFound and not chainedGuardActive then
+                chainedGuardActive = true
+                chainedGuardEndDetected = false
+                chainedGuardCounterReady = false
+                stopAttacking()
+            end
+            if chainedGuardActive then
+                if chainedEndFound then
+                    chainedGuardEndDetected = true
+                elseif chainedGuardEndDetected then
+                    chainedGuardActive = false
+                    chainedGuardEndDetected = false
+                    chainedGuardCounterReady = true
+                end
+            end
+
+            setSustainedGuard(chainedGuardActive)
+            if chainedGuardCounterReady and not sustainedGuardActive then
+                chainedGuardCounterReady = false
+                triggerCounterAttack()
+            end
 
             local found = animHasId(eAnimator, CFG.counterAnimId)
             if found then
