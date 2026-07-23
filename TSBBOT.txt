@@ -14,7 +14,7 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 --  配置区（按需修改）
 -- ══════════════════════════════════════
 local CFG = {
-    masterName        = "cocoyao35",    -- 主人玩家名（练招关闭时不攻击）
+    masterName        = "yaoshen21",    -- 主人玩家名（练招关闭时不攻击）
     whitelist         = {               -- 白名单：这些玩家不会被追击（填用户名）
         "yaoshen21",                   -- 主人自动在白名单内（可留可删）
         "yaoshen05",
