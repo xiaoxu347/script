@@ -110,6 +110,7 @@ local enemyIsRagdoll  = false
 local trackEnabled    = true
 local trainingEnabled = false
 local arenaEnabled    = true
+local focusEnabled    = false
 local arenaRole       = "fighter"
 local arenaTargetAssignments = {}
 local arenaPrimaryFighters = {}
@@ -694,6 +695,7 @@ local function getWhitelistSeparation(mRoot)
 end
 
 local function getArenaAssignment(enemyPlayer, eRoot)
+    if focusEnabled and not trainingEnabled then return "fighter", nil end
     if not arenaEnabled or trainingEnabled then return "fighter", nil end
 
     local masterPlayer = Players:FindFirstChild(CFG.masterName)
@@ -1017,6 +1019,17 @@ local function findNearestThreat()
         return left.player.Name < right.player.Name
     end)
     if #threats == 0 then return nil end
+
+    -- 集中模式下，所有白名单实例都使用主人作为距离基准，锁定同一个最近目标。
+    if focusEnabled then
+        table.sort(threats, function(left, right)
+            if left.masterDistance ~= right.masterDistance then
+                return left.masterDistance < right.masterDistance
+            end
+            return left.player.Name < right.player.Name
+        end)
+        return threats[1].player
+    end
 
     if arenaEnabled then
         rebuildArenaTargetAssignments(masterPlayer, threats)
@@ -1574,9 +1587,10 @@ guardAndCombat = function()
             local ultTag = ultimateActive
                 and (ultimateSkillsReady and " | ⚡大招" or " | ⚡启动中")
                 or (ultimateTrying and " | ⚡尝试中" or "")
+            local combatModeText = focusEnabled and "🎯 集中攻击" or ("⚔ 擂台" .. assignment)
             setStatus(string.format(
-                "状态: ⚔ 擂台%s%s\n敌方: %s | %.1fm | 守卫%.0fm",
-                assignment, ultTag, currentEnemy.Name, eDist, getActiveGuardRadius()), Color3.fromRGB(255, 120, 80))
+                "状态: %s%s\n敌方: %s | %.1fm | 守卫%.0fm",
+                combatModeText, ultTag, currentEnemy.Name, eDist, getActiveGuardRadius()), Color3.fromRGB(255, 120, 80))
         end
     end)
 end
@@ -1620,8 +1634,8 @@ local function createGUI()
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; sg.Parent = LP.PlayerGui
 
     local panel = Instance.new("Frame")
-    panel.Name="Panel"; panel.Size=UDim2.new(0,240,0,395)
-    panel.Position=UDim2.new(0,20,0.5,-180)
+    panel.Name="Panel"; panel.Size=UDim2.new(0,240,0,430)
+    panel.Position=UDim2.new(0,20,0.5,-198)
     panel.BackgroundColor3=Color3.fromRGB(15,15,20)
     panel.BorderSizePixel=0; panel.Active=true; panel.Draggable=true; panel.Parent=sg
     do local c=Instance.new("UICorner"); c.CornerRadius=UDim.new(0,10); c.Parent=panel end
@@ -1751,6 +1765,19 @@ local function createGUI()
         end
     end)
 
+    mkToggle("🎯  集中攻击", false, function(on)
+        focusEnabled = on
+        arenaRole = "fighter"
+        arenaTargetAssignments = {}
+        arenaPrimaryFighters = {}
+        lastThreatCheck = 0
+        if on then
+            setStatus("状态: 🎯 集中主人最近目标", Color3.fromRGB(255, 190, 80))
+        else
+            setStatus("状态: ⚔ 恢复常规目标分配", Color3.fromRGB(100, 200, 255))
+        end
+    end)
+
     -- 指示行
     modeLabel    = mkLabel("模式: 守卫", 14)
     enemyLabel   = mkLabel("敌方: 无", 14)
@@ -1770,6 +1797,9 @@ local function createGUI()
             elseif mode == "guard" then
                 modeLabel.Text      = "模式: 🛡 守卫跟随"
                 modeLabel.TextColor3= Color3.fromRGB(100, 200, 255)
+            elseif focusEnabled then
+                modeLabel.Text      = "模式: 🎯 集中攻击"
+                modeLabel.TextColor3= Color3.fromRGB(255, 190, 80)
             elseif arenaEnabled then
                 modeLabel.Text      = "模式: ⚔ 擂台 " .. arenaRole
                 modeLabel.TextColor3= Color3.fromRGB(255, 150, 80)
