@@ -7,14 +7,27 @@ local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenSvc   = game:GetService("TweenService")
 
+-- 热重载单例：每次重新执行时先完整关闭上一个实例。
+local GLOBAL_ENV = (getgenv and getgenv()) or _G
+local INSTANCE_KEY = "__TSBBOT_INSTANCE_V4"
+local COMBO_CAMERA_BIND_KEY = "__TSBBOT_COMBO_CAMERA_V4"
+local previousInstance = GLOBAL_ENV[INSTANCE_KEY]
+if type(previousInstance) == "table" and type(previousInstance.cleanup) == "function" then
+    pcall(previousInstance.cleanup)
+end
+
+local runtime = { alive = true, cleaning = false, cleaned = false }
+GLOBAL_ENV[INSTANCE_KEY] = runtime
+
 local VIM
 pcall(function() VIM = game:GetService("VirtualInputManager") end)
+local rng = Random.new()
 
 -- ══════════════════════════════════════
 --  配置区（按需修改）
 -- ══════════════════════════════════════
 local CFG = {
-    masterName        = "yaoshen21",    -- 主人玩家名（练招关闭时不攻击）
+    masterName        = "cocoyao35",    -- 主人玩家名（练招关闭时不攻击）
     whitelist         = {               -- 白名单：这些玩家不会被追击（填用户名）
         "yaoshen21",                   -- 主人自动在白名单内（可留可删）
         "yaoshen05",
@@ -24,7 +37,6 @@ local CFG = {
         "zXimpy0",
         "YUNDAF6",
         "SEFSGH51",
-        "cocoyao35"
     },
     guardRadius       = 140,           -- 守卫范围：主人周围多少米内有敌人触发战斗(米)
     guardRadiusBoosted= 280,           -- 大招确认开启后的临时守卫范围
@@ -67,9 +79,63 @@ local CFG = {
     counterAttackTime = 0.08,            -- 防御后的快速普攻按下时间
     chainedGuardStartAnimId = "13362587853", -- 防御链起点：检测后持续按住F
     chainedGuardEndAnimIds = { "13365849295", "14516273501" }, -- 任一收尾动画结束后反击
+    timedGuardAnimId = "13376962659",
+    timedGuardEndAnimId = "13365849295",
+    timedGuardDuration = 4,
+    alternateTimedGuardAnimId = "77509627104305",
+    alternateTimedGuardEndAnimId = "98542310119798",
+    alternateTimedGuardDuration = 3,
+    quickGuardAnimId = "13376869471",
+    quickGuardDuration = 0.5,
     reactiveDashAnimId= "10480793962",  -- 触发左侧瞬移冲刺的目标动画
     reactiveDashOffset= 8,               -- 瞬移到目标左侧的距离
     teleportAnimId    = "10470389827",  -- 触发瞬移的自身动画ID
+    enemyBackstepAnimId = "10470389827", -- 敌人使用该动画时，普通冲刺/侧闪尝试绕后
+    enemyBackstepWindow = 1.0,            -- 动画结束后继续尝试绕后的短窗口
+    enemyBackstepTriggerRange = math.huge, -- Treat the full defense animation as protected at every starting range.
+    enemyBackstepDistance = 12,           -- 正面阶段与敌人的实际保持距离
+    enemyBackstepAttackDistance = 7.5,    -- 到达非正面角度后沿当前角度前压攻击
+    enemyBackstepTolerance = 0.55,        -- Keep moving until close to the side/rear attack point.
+    enemyBackstepRearEnterDot = 0.45,     -- Side and rear angles may advance; only a true frontal cone is held.
+    enemyBackstepRearExitDot = 0.65,      -- Keep the side/rear attack state until the target turns clearly toward the bot.
+    enemyBackstepSideDashTargetDistance = 5.5, -- 正面侧闪时朝敌人背侧修正
+    sideDashBackAttachDistance = 3.5,     -- 侧闪结束后的目标背侧距离
+    sideDashBackAttachMaxStep = 2.6,      -- First small correction as the 0.2s side dash ends.
+    sideDashBackAttachFollowUpDelay = 0.06,
+    sideDashBackAttachFollowUpMaxStep = 1.2,
+    sideDashBackSlideDuration = 0.14,
+    sideDashBackSlideMaxTravel = 2.4,
+    sideDashBackSlideStep = 0.8,
+    sideDashAttachTolerance = 0.30,
+    counterApproachDistance = 7.5,        -- 防御中保持的可反击距离
+    counterApproachTolerance = 0.55,
+    comboOwnerName    = "YUNDAF6",
+    comboMasterAnimId = "10479335397",
+    comboEnemyAnimIds = {
+        "10473655082",
+        "10473653782",
+        "10473655645",
+        "10473654583",
+    },
+    selfBackFanAnimIds = {
+        "10473655082",
+        "10473653782",
+        "10473655645",
+        "10473654583",
+    },
+    selfBackFanMinRadius = 3,
+    selfBackFanMaxRadius = 15,
+    selfBackFanHalfAngle = 60,
+    selfBackFanCooldown = 0.35,
+    comboWindow       = 2,
+    comboBehindDistance = 3,
+    comboPreAttackDelay = 0.3,
+    comboAttackPressTime = 0.08,
+    comboFirstAttackHoldDistance = 8,
+    comboSecondAttackDelay = 1,
+    comboSecondAttackCloseDistance = 3,
+    comboReturnDelay  = 0.4,
+    comboReturnEnforceTime = 1.5,
     attackRange       = 9,              -- 普攻与 Machine Gun Blows 距离
     combatFollowDist  = 6,              -- 战斗时跟随敌方距离(米)
     combatDashMinRange= 20,             -- 20米内禁用常规冲刺
@@ -111,6 +177,14 @@ local trackEnabled    = true
 local trainingEnabled = false
 local arenaEnabled    = true
 local focusEnabled    = false
+local comboEnabled    = false
+local comboExecuting  = false
+local comboWindowUntil = 0
+local comboMasterAnimDetected = false
+local comboEnemyAnimDetected = false
+local comboGeneration = 0
+local comboTarget     = nil
+local comboObservedEnemy = nil
 local arenaRole       = "fighter"
 local arenaTargetAssignments = {}
 local arenaPrimaryFighters = {}
@@ -130,18 +204,36 @@ local sustainedGuardActive = false
 local chainedGuardActive = false
 local chainedGuardEndDetected = false
 local chainedGuardCounterReady = false
+local timedGuardActive = false
+local timedGuardStartDetected = false
+local timedGuardUntil = 0
+local alternateTimedGuardActive = false
+local alternateTimedGuardStartDetected = false
+local alternateTimedGuardUntil = 0
+local quickGuardActive = false
+local quickGuardStartDetected = false
+local quickGuardUntil = 0
 local reactiveDashAnimDetected = false
 local reactiveDashTriggered = false
+local enemyBackstepUntil = 0
+local enemyBackstepTarget = nil
+local enemyBackstepCloseMode = false
+local enemyBackstepAnimPlaying = false
+local enemyBackstepAdvanceAttack = false
+local enemyBackstepActionUntil = 0
+local sideDashActionUntil = 0
 local ultimateActive = false
 local ultimateTrying = false
 local ultimateSkillsReady = false
 local lastUltimateTry = tick()
 local ultimateActivatedAt = 0
 local ultimateAnimDetected = false
+local lastSelfBackFanTeleport = 0
 
--- 连接管理（localDied 独立管理，不放入CONN）
+-- 连接管理（死亡监听和GUI刷新独立管理，不放入CONN）
 local CONN = {}
 local localDiedConn = nil
+local guiHeartbeatConn = nil
 
 -- 地下隐身待机状态
 local isStandby         = false   -- true = 地下隐身待机中，暂停所有跟随
@@ -180,27 +272,369 @@ local function fireServer(t)
     if comm then pcall(function() comm:FireServer(unpack(t)) end) end
 end
 
-local function performDash()
+local function clearEnemyBackstep()
+    enemyBackstepUntil = 0
+    enemyBackstepTarget = nil
+    enemyBackstepCloseMode = false
+    enemyBackstepAnimPlaying = false
+    enemyBackstepAdvanceAttack = false
+    enemyBackstepActionUntil = 0
+    sideDashActionUntil = 0
+end
+
+local function activateEnemyBackstep(enemyPlayer)
+    if enemyPlayer and enemyPlayer == currentEnemy then
+        enemyBackstepTarget = enemyPlayer
+        enemyBackstepUntil = tick() + CFG.enemyBackstepWindow
+        enemyBackstepCloseMode = false
+        enemyBackstepAdvanceAttack = false
+        enemyBackstepActionUntil = 0
+        local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+        local targetRoot = currentEnemyChar and currentEnemyChar:FindFirstChild("HumanoidRootPart")
+        if localRoot and targetRoot
+            and (targetRoot.Position - localRoot.Position).Magnitude <= CFG.enemyBackstepTriggerRange then
+            enemyBackstepCloseMode = true
+            -- 动画命中瞬间停止普通连击，避免旧攻击协程再补一拳。
+            isAttacking = false
+            fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+        end
+    end
+end
+
+local function isEnemyBackstepActive(targetRoot)
+    return targetRoot ~= nil
+        and targetRoot.Parent ~= nil
+        and enemyBackstepTarget ~= nil
+        and enemyBackstepTarget == currentEnemy
+        and tick() <= enemyBackstepUntil
+end
+
+local function getEnemyBackstepPoint(targetRoot, distance)
+    if not targetRoot or not targetRoot.Parent then return nil end
+    local flatLook = Vector3.new(targetRoot.CFrame.LookVector.X, 0, targetRoot.CFrame.LookVector.Z)
+    if flatLook.Magnitude <= 0.05 then return nil end
+    return targetRoot.Position - flatLook.Unit * (distance or CFG.enemyBackstepDistance)
+end
+
+local function getRandomBackFanCFrame(targetRoot)
+    if not targetRoot or not targetRoot.Parent then return nil end
+
+    local flatLook = Vector3.new(targetRoot.CFrame.LookVector.X, 0,
+        targetRoot.CFrame.LookVector.Z)
+    local flatRight = Vector3.new(targetRoot.CFrame.RightVector.X, 0,
+        targetRoot.CFrame.RightVector.Z)
+    if flatLook.Magnitude <= 0.05 or flatRight.Magnitude <= 0.05 then return nil end
+
+    local minRadius = math.max(0, math.min(CFG.selfBackFanMinRadius,
+        CFG.selfBackFanMaxRadius))
+    local maxRadius = math.max(minRadius, CFG.selfBackFanMaxRadius)
+    local radius = minRadius
+    if maxRadius > minRadius then
+        radius = math.sqrt(rng:NextNumber(minRadius * minRadius,
+            maxRadius * maxRadius))
+    end
+    local angle = math.rad(rng:NextNumber(-CFG.selfBackFanHalfAngle,
+        CFG.selfBackFanHalfAngle))
+    local direction = -flatLook.Unit * math.cos(angle)
+        + flatRight.Unit * math.sin(angle)
+    local position = targetRoot.Position + direction * radius
+    local lookPoint = Vector3.new(targetRoot.Position.X, position.Y,
+        targetRoot.Position.Z)
+    return CFrame.lookAt(position, lookPoint)
+end
+
+local function getEnemyFacingDot(localRoot, targetRoot)
+    if not localRoot or not targetRoot then return nil end
+    local flatLook = Vector3.new(targetRoot.CFrame.LookVector.X, 0, targetRoot.CFrame.LookVector.Z)
+    local targetToLocal = Vector3.new(
+        localRoot.Position.X - targetRoot.Position.X,
+        0,
+        localRoot.Position.Z - targetRoot.Position.Z
+    )
+    if flatLook.Magnitude <= 0.05 or targetToLocal.Magnitude <= 0.05 then return nil end
+    return flatLook.Unit:Dot(targetToLocal.Unit)
+end
+
+local function isOutsideEnemyFront(localRoot, targetRoot, keepRearAngle)
+    local facingDot = getEnemyFacingDot(localRoot, targetRoot)
+    if facingDot == nil then return false end
+    local threshold = keepRearAngle and CFG.enemyBackstepRearExitDot
+        or CFG.enemyBackstepRearEnterDot
+    return facingDot <= threshold
+end
+
+local function getRadialPoint(targetRoot, localRoot, distance)
+    if not targetRoot or not localRoot then return nil end
+    local radial = Vector3.new(
+        localRoot.Position.X - targetRoot.Position.X,
+        0,
+        localRoot.Position.Z - targetRoot.Position.Z
+    )
+    if radial.Magnitude <= 0.05 then
+        radial = -Vector3.new(targetRoot.CFrame.LookVector.X, 0,
+            targetRoot.CFrame.LookVector.Z)
+    end
+    if radial.Magnitude <= 0.05 then return nil end
+    return targetRoot.Position + radial.Unit * distance
+end
+
+local function getSideDashPlacementPoint(targetRoot, localRoot, tryBackstep, attach)
+    if tryBackstep then
+        local distance = attach and CFG.sideDashBackAttachDistance
+            or CFG.enemyBackstepSideDashTargetDistance
+        return getEnemyBackstepPoint(targetRoot, distance)
+    end
+    return getRadialPoint(targetRoot, localRoot, CFG.enemyBackstepAttackDistance)
+end
+
+local function applySideDashAttachment(localRoot, targetRoot, tryBackstep, maxStep)
+    if not localRoot or not localRoot.Parent or not targetRoot or not targetRoot.Parent then
+        return false
+    end
+
+    local desiredPoint = getSideDashPlacementPoint(targetRoot, localRoot, tryBackstep, true)
+    if not desiredPoint then return false end
+
+    local delta = Vector3.new(
+        desiredPoint.X - localRoot.Position.X,
+        0,
+        desiredPoint.Z - localRoot.Position.Z
+    )
+    if delta.Magnitude <= CFG.sideDashAttachTolerance then return false end
+
+    local nextPosition = localRoot.Position + delta.Unit
+        * math.min(delta.Magnitude, maxStep or CFG.sideDashBackAttachMaxStep)
+    local lookPoint = Vector3.new(targetRoot.Position.X, nextPosition.Y, targetRoot.Position.Z)
+    localRoot.CFrame = CFrame.lookAt(nextPosition, lookPoint)
+    camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetRoot.Position)
+    return true
+end
+
+local function applySideDashBackSlide(localRoot, targetRoot)
+    if not localRoot or not localRoot.Parent or not targetRoot or not targetRoot.Parent then
+        return false
+    end
+
+    local startedAt = tick()
+    local travelLeft = CFG.sideDashBackSlideMaxTravel
+    local moved = false
+    while runtime.alive and mode == "combat" and not isStandby
+        and localRoot.Parent and targetRoot.Parent
+        and travelLeft > 0.05
+        and tick() - startedAt < CFG.sideDashBackSlideDuration do
+        local desiredPoint = getEnemyBackstepPoint(targetRoot,
+            CFG.sideDashBackAttachDistance)
+        if not desiredPoint then break end
+
+        local delta = Vector3.new(
+            desiredPoint.X - localRoot.Position.X,
+            0,
+            desiredPoint.Z - localRoot.Position.Z
+        )
+        if delta.Magnitude <= CFG.sideDashAttachTolerance then break end
+
+        local step = math.min(delta.Magnitude, travelLeft, CFG.sideDashBackSlideStep)
+        local nextPosition = localRoot.Position + delta.Unit * step
+        local lookPoint = Vector3.new(targetRoot.Position.X, nextPosition.Y,
+            targetRoot.Position.Z)
+        localRoot.CFrame = CFrame.lookAt(nextPosition, lookPoint)
+        humanoid:Move(delta.Unit, false)
+        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetRoot.Position)
+        travelLeft = travelLeft - step
+        moved = true
+        RunService.Heartbeat:Wait()
+    end
+    return moved
+end
+
+local function moveAroundEnemyAtDistance(localRoot, targetRoot, distance, separation)
+    if not localRoot or not targetRoot then return end
+    local radial = Vector3.new(
+        localRoot.Position.X - targetRoot.Position.X,
+        0,
+        localRoot.Position.Z - targetRoot.Position.Z
+    )
+    local flatLook = Vector3.new(targetRoot.CFrame.LookVector.X, 0,
+        targetRoot.CFrame.LookVector.Z)
+    if radial.Magnitude <= 0.05 or flatLook.Magnitude <= 0.05 then return end
+
+    local radialUnit = radial.Unit
+    local desiredBack = -flatLook.Unit
+    local tangent = desiredBack - radialUnit * desiredBack:Dot(radialUnit)
+    if tangent.Magnitude <= 0.05 then
+        -- At exactly the enemy's front, desiredBack is collinear with radial.
+        -- Pick a lateral direction so hold-distance also begins an orbit.
+        tangent = Vector3.new(targetRoot.CFrame.RightVector.X, 0,
+            targetRoot.CFrame.RightVector.Z)
+    end
+    local distanceError = distance - radial.Magnitude
+    local moveDirection = radialUnit * math.clamp(distanceError / 3, -1, 1)
+    if tangent.Magnitude > 0.05 then
+        moveDirection = moveDirection + tangent.Unit
+    end
+    if separation.Magnitude > 0.05 then
+        moveDirection = moveDirection + separation.Unit * 0.35
+    end
+
+    humanoid:Move(moveDirection.Magnitude > 0.05 and moveDirection.Unit
+        or Vector3.zero, false)
+end
+
+local function isSideDashActionLocked()
+    return tick() < sideDashActionUntil
+end
+
+local function isEnemyBackstepCloseActive(targetRoot)
+    return enemyBackstepCloseMode and isEnemyBackstepActive(targetRoot)
+end
+
+local function isEnemyBackstepFrontBlocked()
+    local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+    local targetRoot = currentEnemyChar and currentEnemyChar:FindFirstChild("HumanoidRootPart")
+    return isEnemyBackstepCloseActive(targetRoot)
+        and not isOutsideEnemyFront(localRoot, targetRoot, enemyBackstepAdvanceAttack)
+end
+
+local function performDash(targetRoot, tryBackstep)
+    if tryBackstep and isEnemyBackstepActive(targetRoot) then
+        local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+        local backPoint = getEnemyBackstepPoint(targetRoot)
+        if localRoot and backPoint then
+            local flatPoint = Vector3.new(backPoint.X, localRoot.Position.Y, backPoint.Z)
+            if (flatPoint - localRoot.Position).Magnitude > 0.05 then
+                pcall(function()
+                    localRoot.CFrame = CFrame.lookAt(localRoot.Position, flatPoint)
+                    camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetRoot.Position)
+                end)
+            end
+        end
+    end
     fireServer({ { Dash = Enum.KeyCode.W, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
 end
 
-local function performSideDash()
+local function performSideDash(targetRoot, tryBackstep, attackAfterDash)
     local now = tick()
-    if now - lastSideDash < CFG.sideDashInterval then return end
+    if now - lastSideDash < CFG.sideDashInterval then return false end
     lastSideDash = now
+    local shouldAttackAfterDash = attackAfterDash == true
+    local specialBackstep = isEnemyBackstepCloseActive(targetRoot)
+    local attachDelay = tryBackstep
+        and (CFG.sideDashBackAttachFollowUpDelay + CFG.sideDashBackSlideDuration)
+        or 0
+    local actionLockUntil = now + CFG.sideDashDuration + attachDelay
+        + (shouldAttackAfterDash and CFG.attackPressTime + 0.12 or 0.08)
+    sideDashActionUntil = math.max(sideDashActionUntil, actionLockUntil)
+    if shouldAttackAfterDash then
+        isAttacking = false
+        fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+        if specialBackstep then
+            enemyBackstepActionUntil = math.max(enemyBackstepActionUntil,
+                actionLockUntil)
+        end
+    end
     task.spawn(function()
+        local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+
+        local function aimRightSideAtTarget()
+            if not localRoot or not localRoot.Parent or not targetRoot or not targetRoot.Parent then
+                return false
+            end
+
+            local aimPoint = getSideDashPlacementPoint(targetRoot, localRoot, tryBackstep, false)
+                or targetRoot.Position
+            local flatToTarget = Vector3.new(
+                aimPoint.X - localRoot.Position.X,
+                0,
+                aimPoint.Z - localRoot.Position.Z
+            )
+            if flatToTarget.Magnitude <= 0.05 then return false end
+
+            -- 角色的右方向对准敌人，使纯 D+Q 侧闪向敌人收近。
+            local dashLook = Vector3.yAxis:Cross(flatToTarget.Unit)
+            localRoot.CFrame = CFrame.lookAt(
+                localRoot.Position,
+                localRoot.Position + dashLook
+            )
+            camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetRoot.Position)
+            return true
+        end
+
+        aimRightSideAtTarget()
         if VIM then
             pcall(function()
+                humanoid:Move(Vector3.zero, false)
                 VIM:SendKeyEvent(true,  Enum.KeyCode.D, false, game)
                 VIM:SendKeyEvent(true,  Enum.KeyCode.Q, false, game)
-                task.wait(CFG.sideDashDuration)
+            end)
+
+            local startedAt = tick()
+            while runtime.alive and tick() - startedAt < CFG.sideDashDuration do
+                if mode ~= "combat" or isStandby or not trackEnabled
+                    or not aimRightSideAtTarget() then
+                    break
+                end
+                RunService.RenderStepped:Wait()
+            end
+
+            pcall(function()
                 VIM:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
                 VIM:SendKeyEvent(false, Enum.KeyCode.D, false, game)
             end)
         else
             fireServer({ { Dash = Enum.KeyCode.D, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
+            task.wait(CFG.sideDashDuration)
+        end
+
+        if runtime.alive and mode == "combat" and not isStandby
+            and localRoot and localRoot.Parent and targetRoot and targetRoot.Parent then
+            applySideDashAttachment(localRoot, targetRoot, tryBackstep)
+            if tryBackstep then
+                task.wait(CFG.sideDashBackAttachFollowUpDelay)
+                if runtime.alive and mode == "combat" and not isStandby
+                    and localRoot.Parent and targetRoot.Parent then
+                    applySideDashAttachment(localRoot, targetRoot, true,
+                        CFG.sideDashBackAttachFollowUpMaxStep)
+                    applySideDashBackSlide(localRoot, targetRoot)
+                end
+            end
+            local flatTarget = Vector3.new(
+                targetRoot.Position.X,
+                localRoot.Position.Y,
+                targetRoot.Position.Z
+            )
+            if (flatTarget - localRoot.Position).Magnitude > 0.05 then
+                localRoot.CFrame = CFrame.lookAt(localRoot.Position, flatTarget)
+            end
+            local safeToAttack = not isEnemyBackstepFrontBlocked()
+                and (not tryBackstep
+                    or isOutsideEnemyFront(localRoot, targetRoot, true))
+            if shouldAttackAfterDash and safeToAttack then
+                fireServer({ { Goal = "LeftClick", Mobile = true } })
+                task.wait(CFG.attackPressTime)
+                fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+            end
         end
     end)
+    return true
+end
+
+-- 连携第二段专用侧闪，不受普通侧闪冷却影响，并等待按键完整释放。
+local function performComboSideDash()
+    if VIM then
+        pcall(function()
+            VIM:SendKeyEvent(true, Enum.KeyCode.D, false, game)
+            VIM:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+        end)
+        task.wait(CFG.sideDashDuration)
+        pcall(function()
+            VIM:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+            VIM:SendKeyEvent(false, Enum.KeyCode.D, false, game)
+        end)
+        return
+    end
+
+    fireServer({ { Dash = Enum.KeyCode.D, Key = Enum.KeyCode.Q, Goal = "KeyPress" } })
+    task.wait(CFG.sideDashDuration)
 end
 
 local function sendKey(keyCode, isDown)
@@ -240,6 +674,15 @@ local function cancelCounterAttack()
     chainedGuardActive = false
     chainedGuardEndDetected = false
     chainedGuardCounterReady = false
+    timedGuardActive = false
+    timedGuardStartDetected = false
+    timedGuardUntil = 0
+    alternateTimedGuardActive = false
+    alternateTimedGuardStartDetected = false
+    alternateTimedGuardUntil = 0
+    quickGuardActive = false
+    quickGuardStartDetected = false
+    quickGuardUntil = 0
     reactiveDashAnimDetected = false
     reactiveDashTriggered = false
     releaseCounterGuard(true)
@@ -284,6 +727,74 @@ end
 
 local function stopAttacking()
     isAttacking = false
+end
+
+local function startTimedGuard()
+    if timedGuardStartDetected then return false end
+    timedGuardStartDetected = true
+    timedGuardActive = true
+    timedGuardUntil = tick() + CFG.timedGuardDuration
+    stopAttacking()
+    setSustainedGuard(true)
+    return true
+end
+
+local function startAlternateTimedGuard()
+    if alternateTimedGuardStartDetected then return false end
+    alternateTimedGuardStartDetected = true
+    alternateTimedGuardActive = true
+    alternateTimedGuardUntil = tick() + CFG.alternateTimedGuardDuration
+    stopAttacking()
+    setSustainedGuard(true)
+    return true
+end
+
+local function startQuickGuard()
+    if quickGuardStartDetected then return false end
+    quickGuardStartDetected = true
+    quickGuardActive = true
+    quickGuardUntil = tick() + CFG.quickGuardDuration
+    stopAttacking()
+    setSustainedGuard(true)
+    return true
+end
+
+local function triggerSelfBackFanTeleport()
+    if not runtime.alive or not trackEnabled or isStandby or comboExecuting
+        or mode ~= "combat" then
+        return false
+    end
+
+    local now = tick()
+    if now - lastSelfBackFanTeleport < CFG.selfBackFanCooldown then
+        return false
+    end
+
+    local targetCharacter = currentEnemy and currentEnemy.Character or currentEnemyChar
+    local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+    local targetHumanoid = targetCharacter and targetCharacter:FindFirstChild("Humanoid")
+    local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not targetRoot or not targetHumanoid
+        or targetHumanoid.Health <= 0 or not localRoot then
+        return false
+    end
+
+    local destination = getRandomBackFanCFrame(targetRoot)
+    if not destination then return false end
+
+    stopAttacking()
+    fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+    local moved = pcall(function()
+        humanoid:Move(Vector3.zero, false)
+        localRoot.AssemblyLinearVelocity = Vector3.zero
+        localRoot.AssemblyAngularVelocity = Vector3.zero
+        localRoot.CFrame = destination
+        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetRoot.Position)
+    end)
+    if moved then
+        lastSelfBackFanTeleport = now
+    end
+    return moved
 end
 
 local function getStandbyCFrame(mRoot)
@@ -434,6 +945,7 @@ local function enterStandby()
     standbyAutoRotate = humanoid.AutoRotate
     isStandby = true
     blitzJumpPending = false
+    clearEnemyBackstep()
     cancelCounterAttack()
     stopAttacking()
     mode = "guard"
@@ -487,10 +999,12 @@ local function attackLoop()
     if isAttacking then return end
     isAttacking = true
     task.spawn(function()
-        while isAttacking do
-            if isCounterDefending() then
-                task.wait()
-                continue
+        while runtime.alive and isAttacking do
+            if isCounterDefending() or isEnemyBackstepFrontBlocked()
+                or isSideDashActionLocked() then
+                fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+                isAttacking = false
+                break
             end
             fireServer({ { Goal = "LeftClick",        Mobile = true } })
             task.wait(CFG.attackPressTime)
@@ -516,7 +1030,8 @@ local function triggerCounterAttack()
         if generation ~= counterGeneration then return end
         releaseCounterGuard()
 
-        if mode == "combat" and trackEnabled and not isStandby and currentEnemyChar then
+        if mode == "combat" and trackEnabled and not isStandby and currentEnemyChar
+            and not isEnemyBackstepFrontBlocked() then
             fireServer({ { Goal = "LeftClick", Mobile = true } })
             task.wait(CFG.counterAttackTime)
             fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
@@ -767,6 +1282,27 @@ local function moveTowardPoint(mRoot, point, separation)
     end
 end
 
+local function moveWhileDefending(mRoot, targetRoot, separation)
+    local holdPoint = getRadialPoint(targetRoot, mRoot, CFG.counterApproachDistance)
+    if not holdPoint then
+        humanoid:Move(Vector3.zero, false)
+        return
+    end
+
+    local delta = Vector3.new(
+        holdPoint.X - mRoot.Position.X,
+        0,
+        holdPoint.Z - mRoot.Position.Z
+    )
+    if delta.Magnitude > CFG.counterApproachTolerance then
+        moveTowardPoint(mRoot, holdPoint, separation)
+    elseif separation.Magnitude > 0.05 then
+        humanoid:Move(separation.Unit, false)
+    else
+        humanoid:Move(Vector3.zero, false)
+    end
+end
+
 local function tryRagdollAirBlitz(distance)
     if ultimateActive or distance > 50 or blitzJumpPending or not enemyIsRagdoll then
         return false
@@ -799,11 +1335,34 @@ local function tryRagdollAirBlitz(distance)
 end
 
 -- 动画检测辅助
+local function animTrackHasId(track, id)
+    local animation = track and track.Animation
+    local animationId = animation and animation.AnimationId
+    return animationId ~= nil and tostring(animationId):find(id, 1, true) ~= nil
+end
+
+local function animTrackHasAnyId(track, ids)
+    for _, id in ipairs(ids) do
+        if animTrackHasId(track, id) then return true end
+    end
+    return false
+end
+
 local function animHasId(animator, id)
     local ok, tracks = pcall(function() return animator:GetPlayingAnimationTracks() end)
     if not ok then return false end
     for _, t in ipairs(tracks) do
-        if tostring(t.Animation.AnimationId):find(id, 1, true) then return true end
+        if animTrackHasId(t, id) then return true end
+    end
+    return false
+end
+
+
+local function animHasAnyId(animator, ids)
+    local ok, tracks = pcall(function() return animator:GetPlayingAnimationTracks() end)
+    if not ok then return false end
+    for _, track in ipairs(tracks) do
+        if animTrackHasAnyId(track, ids) then return true end
     end
     return false
 end
@@ -1052,12 +1611,238 @@ local function findNearestThreat()
     return nearest and nearest.player or nil
 end
 
+-- 连携技始终以主人为距离基准，不受集中/擂台/练招目标分配影响。
+local function findNearestThreatToMaster()
+    local masterPlayer = Players:FindFirstChild(CFG.masterName)
+    local masterRoot = masterPlayer
+        and masterPlayer.Character
+        and masterPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not masterRoot then return nil end
+
+    local nearest, nearestDistance = nil, math.huge
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player ~= masterPlayer and not isWhitelisted(player) then
+            local root, playerHumanoid = getAlivePlayerParts(player)
+            if root and playerHumanoid then
+                local distance = (root.Position - masterRoot.Position).Magnitude
+                if distance <= getActiveGuardRadius()
+                    and (distance < nearestDistance
+                        or (distance == nearestDistance
+                            and (not nearest or player.Name < nearest.Name))) then
+                    nearest = player
+                    nearestDistance = distance
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+local function triggerComboAttack(targetPlayer)
+    if not comboEnabled or comboExecuting or LP.Name ~= CFG.comboOwnerName then return false end
+
+    local targetCharacter = targetPlayer and targetPlayer.Character
+    local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+    local targetHumanoid = targetCharacter and targetCharacter:FindFirstChild("Humanoid")
+    local localRoot = character and character:FindFirstChild("HumanoidRootPart")
+    if not targetRoot or not targetHumanoid or targetHumanoid.Health <= 0 or not localRoot then
+        return false
+    end
+
+    comboExecuting = true
+    comboWindowUntil = 0
+    comboEnemyAnimDetected = true
+    comboTarget = targetPlayer
+    comboGeneration = comboGeneration + 1
+    local generation = comboGeneration
+
+    task.spawn(function()
+        local comboSideDashing = false
+        local comboHoldingDistance = false
+
+        local function releaseComboControls()
+            pcall(function()
+                RunService:UnbindFromRenderStep(COMBO_CAMERA_BIND_KEY)
+            end)
+            sendKey(Enum.KeyCode.Q, false)
+            sendKey(Enum.KeyCode.D, false)
+        end
+
+        local function comboStillValid()
+            return runtime.alive
+                and generation == comboGeneration
+                and comboEnabled
+                and comboExecuting
+                and localRoot
+                and localRoot.Parent
+                and targetRoot
+                and targetRoot.Parent
+                and targetHumanoid
+                and targetHumanoid.Parent
+                and targetHumanoid.Health > 0
+        end
+
+        local function returnComboToStandby()
+            releaseComboControls()
+            if not runtime.alive or generation ~= comboGeneration or not comboEnabled then
+                return false
+            end
+
+            -- 目标死亡或离场也必须持续回地下，不能把返程依赖于目标存活。
+            local returnStartedAt = tick()
+            while runtime.alive and generation == comboGeneration and comboEnabled
+                and tick() - returnStartedAt < CFG.comboReturnEnforceTime do
+                if not isStandby or not standbyAnchor then
+                    enterStandby()
+                end
+                local root = character and character:FindFirstChild("HumanoidRootPart")
+                if root and humanoid then
+                    pcall(function()
+                        if next(standbySavedParts) == nil then
+                            applyStandbyStealth(true)
+                        end
+                        lockStandbyPose(root)
+                    end)
+                end
+                RunService.Heartbeat:Wait()
+            end
+
+            if generation ~= comboGeneration or not comboEnabled then return false end
+            comboExecuting = false
+            comboTarget = nil
+            setStatus("状态: 连携完成，地下隐身待机", Color3.fromRGB(180, 130, 255))
+            return true
+        end
+
+        local behind = targetRoot.Position - targetRoot.CFrame.LookVector * CFG.comboBehindDistance
+        local destination = CFrame.lookAt(behind, targetRoot.Position)
+        exitStandby(destination)
+
+        if not comboStillValid() then
+            returnComboToStandby()
+            return
+        end
+        pcall(function()
+            RunService:UnbindFromRenderStep(COMBO_CAMERA_BIND_KEY)
+        end)
+        RunService:BindToRenderStep(COMBO_CAMERA_BIND_KEY, Enum.RenderPriority.Camera.Value + 1, function()
+            if generation ~= comboGeneration or not comboEnabled or not comboExecuting
+                or not targetRoot or not targetRoot.Parent or targetHumanoid.Health <= 0 then
+                RunService:UnbindFromRenderStep(COMBO_CAMERA_BIND_KEY)
+                return
+            end
+            pcall(function()
+                if comboHoldingDistance then
+                    local holdPosition = targetRoot.Position
+                        - targetRoot.CFrame.LookVector * CFG.comboFirstAttackHoldDistance
+                    humanoid:Move(Vector3.zero, false)
+                    localRoot.AssemblyLinearVelocity = Vector3.zero
+                    localRoot.AssemblyAngularVelocity = Vector3.zero
+                    localRoot.CFrame = CFrame.lookAt(holdPosition, targetRoot.Position)
+                elseif comboSideDashing then
+                    -- 让角色右方向始终指向目标：D+Q 仍是右侧闪，但位移会向目标收近。
+                    local flatToTarget = Vector3.new(
+                        targetRoot.Position.X - localRoot.Position.X,
+                        0,
+                        targetRoot.Position.Z - localRoot.Position.Z
+                    )
+                    if flatToTarget.Magnitude > 0.05 then
+                        local dashLook = Vector3.yAxis:Cross(flatToTarget.Unit)
+                        localRoot.CFrame = CFrame.lookAt(
+                            localRoot.Position,
+                            localRoot.Position + dashLook
+                        )
+                    end
+                elseif not comboSideDashing then
+                    humanoid:Move(Vector3.zero, false)
+                    localRoot.AssemblyLinearVelocity = Vector3.zero
+                    localRoot.AssemblyAngularVelocity = Vector3.zero
+                    localRoot.CFrame = CFrame.lookAt(localRoot.Position, targetRoot.Position)
+                end
+                camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetRoot.Position)
+            end)
+        end)
+
+        task.wait(CFG.comboPreAttackDelay)
+        if not comboStillValid() then
+            returnComboToStandby()
+            return
+        end
+
+        fireServer({ { Goal = "LeftClick", Mobile = true } })
+        task.wait(CFG.comboAttackPressTime)
+        fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+
+        comboHoldingDistance = true
+        task.wait(CFG.comboSecondAttackDelay)
+        comboHoldingDistance = false
+        if not comboStillValid() then
+            returnComboToStandby()
+            return
+        end
+
+        -- 从实时的8米保持位发起纯右侧闪；渲染回调会把角色右方向动态对准目标。
+        local secondBehind = targetRoot.Position
+            - targetRoot.CFrame.LookVector * CFG.comboFirstAttackHoldDistance
+        local flatToTarget = Vector3.new(
+            targetRoot.Position.X - secondBehind.X,
+            0,
+            targetRoot.Position.Z - secondBehind.Z
+        )
+        if flatToTarget.Magnitude > 0.05 then
+            local dashLook = Vector3.yAxis:Cross(flatToTarget.Unit)
+            localRoot.CFrame = CFrame.lookAt(secondBehind, secondBehind + dashLook)
+        else
+            localRoot.CFrame = CFrame.lookAt(secondBehind, targetRoot.Position)
+        end
+        localRoot.AssemblyLinearVelocity = Vector3.zero
+        localRoot.AssemblyAngularVelocity = Vector3.zero
+
+        comboSideDashing = true
+        performComboSideDash()
+        comboSideDashing = false
+        if not comboStillValid() then
+            returnComboToStandby()
+            return
+        end
+
+        -- 保留侧闪形成的右侧方位，并把结束点收敛到近身攻击距离。
+        local horizontalOffset = Vector3.new(
+            localRoot.Position.X - targetRoot.Position.X,
+            0,
+            localRoot.Position.Z - targetRoot.Position.Z
+        )
+        if horizontalOffset.Magnitude < 0.05 then
+            horizontalOffset = -Vector3.new(
+                targetRoot.CFrame.LookVector.X,
+                0,
+                targetRoot.CFrame.LookVector.Z
+            )
+        end
+        local closePosition = targetRoot.Position
+            + horizontalOffset.Unit * CFG.comboSecondAttackCloseDistance
+        localRoot.CFrame = CFrame.lookAt(closePosition, targetRoot.Position)
+
+        fireServer({ { Goal = "LeftClick", Mobile = true } })
+        task.wait(CFG.comboAttackPressTime)
+        fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
+
+        task.wait(math.max(0, CFG.comboReturnDelay - CFG.comboAttackPressTime))
+        returnComboToStandby()
+    end)
+    return true
+end
+
 -- ══════════════════════════════════════
 --  进入守卫模式
 -- ══════════════════════════════════════
 local function enterGuardMode()
-    if mode == "guard" then return end
+    if mode == "guard" then
+        clearEnemyBackstep()
+        return
+    end
     mode         = "guard"
+    clearEnemyBackstep()
     currentEnemy     = nil
     currentEnemyChar = nil
     enemyIsRagdoll   = false
@@ -1072,6 +1857,10 @@ local function enterGuardMode()
     if CONN.enemyState   then CONN.enemyState:Disconnect();   CONN.enemyState   = nil end
     if CONN.enemyLeft    then CONN.enemyLeft:Disconnect();    CONN.enemyLeft    = nil end
     if CONN.counterAnim  then CONN.counterAnim:Disconnect();  CONN.counterAnim  = nil end
+    if CONN.enemyBackstepPlayed then
+        CONN.enemyBackstepPlayed:Disconnect()
+        CONN.enemyBackstepPlayed = nil
+    end
 end
 
 -- ══════════════════════════════════════
@@ -1079,6 +1868,7 @@ end
 -- ══════════════════════════════════════
 local function enterCombatMode(enemyPlayer)
     if currentEnemy == enemyPlayer and mode == "combat" then return end
+    clearEnemyBackstep()
     mode             = "combat"
     currentEnemy     = enemyPlayer
     currentEnemyChar = enemyPlayer.Character
@@ -1092,6 +1882,7 @@ local function enterCombatMode(enemyPlayer)
     if CONN.enemyState   then CONN.enemyState:Disconnect()   end
     if CONN.enemyLeft    then CONN.enemyLeft:Disconnect()      end
     if CONN.counterAnim  then CONN.counterAnim:Disconnect()    end
+    if CONN.enemyBackstepPlayed then CONN.enemyBackstepPlayed:Disconnect() end
 
     local eHum = currentEnemyChar and currentEnemyChar:FindFirstChild("Humanoid")
     if not eHum then return end
@@ -1110,11 +1901,32 @@ local function enterCombatMode(enemyPlayer)
     -- 敌方布娃娃检测
     CONN.enemyRagdoll = eHum:GetPropertyChangedSignal("PlatformStand"):Connect(function()
         enemyIsRagdoll = eHum.PlatformStand
-        if enemyIsRagdoll then stopAttacking() end
+        if enemyIsRagdoll then
+            stopAttacking()
+            timedGuardActive = false
+            timedGuardUntil = 0
+            alternateTimedGuardActive = false
+            alternateTimedGuardStartDetected = false
+            alternateTimedGuardUntil = 0
+            quickGuardActive = false
+            quickGuardStartDetected = false
+            quickGuardUntil = 0
+            setSustainedGuard(chainedGuardActive)
+        end
     end)
     CONN.enemyState = eHum.StateChanged:Connect(function(_, new)
         if new == Enum.HumanoidStateType.Physics then
-            enemyIsRagdoll = true; stopAttacking()
+            enemyIsRagdoll = true
+            stopAttacking()
+            timedGuardActive = false
+            timedGuardUntil = 0
+            alternateTimedGuardActive = false
+            alternateTimedGuardStartDetected = false
+            alternateTimedGuardUntil = 0
+            quickGuardActive = false
+            quickGuardStartDetected = false
+            quickGuardUntil = 0
+            setSustainedGuard(chainedGuardActive)
         elseif new == Enum.HumanoidStateType.GettingUp
             or new == Enum.HumanoidStateType.Running
             or new == Enum.HumanoidStateType.Landed
@@ -1123,16 +1935,46 @@ local function enterCombatMode(enemyPlayer)
         end
     end)
 
-    local eAnimator = eHum:FindFirstChildOfClass("Animator")
+    -- Humanoid provides the same track API when Animator replication is late.
+    local eAnimator = eHum:FindFirstChildOfClass("Animator") or eHum
     if eAnimator then
+        CONN.enemyBackstepPlayed = eAnimator.AnimationPlayed:Connect(function(track)
+            if mode == "combat" and trackEnabled and not isStandby
+                and currentEnemy == enemyPlayer then
+                if animTrackHasId(track, CFG.enemyBackstepAnimId) then
+                    activateEnemyBackstep(enemyPlayer)
+                    enemyBackstepAnimPlaying = true
+                end
+                if animTrackHasId(track, CFG.timedGuardAnimId) then
+                    startTimedGuard()
+                end
+                if animTrackHasId(track, CFG.alternateTimedGuardAnimId) then
+                    startAlternateTimedGuard()
+                end
+                if animTrackHasId(track, CFG.quickGuardAnimId) then
+                    startQuickGuard()
+                end
+            end
+        end)
+
         CONN.counterAnim = RunService.Heartbeat:Connect(function()
             if mode ~= "combat" or not trackEnabled or isStandby or not currentEnemyChar
                 or (ultimateActive and not ultimateSkillsReady) then
+                clearEnemyBackstep()
                 counterAnimDetected = false
                 counterTriggeredForAnimation = false
                 chainedGuardActive = false
                 chainedGuardEndDetected = false
                 chainedGuardCounterReady = false
+                timedGuardActive = false
+                timedGuardStartDetected = false
+                timedGuardUntil = 0
+                alternateTimedGuardActive = false
+                alternateTimedGuardStartDetected = false
+                alternateTimedGuardUntil = 0
+                quickGuardActive = false
+                quickGuardStartDetected = false
+                quickGuardUntil = 0
                 setSustainedGuard(false)
                 reactiveDashAnimDetected = false
                 reactiveDashTriggered = false
@@ -1142,15 +1984,47 @@ local function enterCombatMode(enemyPlayer)
             local mRoot = character and character:FindFirstChild("HumanoidRootPart")
             local eRoot = currentEnemyChar:FindFirstChild("HumanoidRootPart")
             if not mRoot or not eRoot then
+                clearEnemyBackstep()
                 counterAnimDetected = false
                 counterTriggeredForAnimation = false
                 chainedGuardActive = false
                 chainedGuardEndDetected = false
                 chainedGuardCounterReady = false
+                timedGuardActive = false
+                timedGuardStartDetected = false
+                timedGuardUntil = 0
+                alternateTimedGuardActive = false
+                alternateTimedGuardStartDetected = false
+                alternateTimedGuardUntil = 0
+                quickGuardActive = false
+                quickGuardStartDetected = false
+                quickGuardUntil = 0
                 setSustainedGuard(false)
                 reactiveDashAnimDetected = false
                 reactiveDashTriggered = false
                 return
+            end
+
+            -- AnimationPlayed 负责即时响应；轮询负责补偿监听绑定前已经开始的动画。
+            local enemyBackstepFound = animHasId(eAnimator, CFG.enemyBackstepAnimId)
+            if enemyBackstepFound then
+                if not enemyBackstepAnimPlaying then
+                    activateEnemyBackstep(enemyPlayer)
+                else
+                    enemyBackstepUntil = tick() + CFG.enemyBackstepWindow
+                end
+            end
+            enemyBackstepAnimPlaying = enemyBackstepFound
+
+            -- Fallback for a root that appears after the animation event.
+            -- The full defense track remains protected until it expires.
+            if isEnemyBackstepActive(eRoot)
+                and not enemyBackstepCloseMode
+                and (eRoot.Position - mRoot.Position).Magnitude <= CFG.enemyBackstepTriggerRange then
+                enemyBackstepCloseMode = true
+                enemyBackstepAdvanceAttack = isOutsideEnemyFront(mRoot, eRoot, false)
+                isAttacking = false
+                fireServer({ { Goal = "LeftClickRelease", Mobile = true } })
             end
 
             local chainedStartFound = animHasId(eAnimator, CFG.chainedGuardStartAnimId)
@@ -1178,7 +2052,48 @@ local function enterCombatMode(enemyPlayer)
                 end
             end
 
-            setSustainedGuard(chainedGuardActive)
+            local timedGuardStartFound = animHasId(eAnimator, CFG.timedGuardAnimId)
+            if timedGuardStartFound then
+                startTimedGuard()
+            else
+                timedGuardStartDetected = false
+            end
+
+            local timedGuardEndFound = animHasId(eAnimator, CFG.timedGuardEndAnimId)
+            if timedGuardActive and (timedGuardEndFound or enemyIsRagdoll
+                or tick() >= timedGuardUntil) then
+                timedGuardActive = false
+                timedGuardUntil = 0
+            end
+
+            local alternateTimedGuardStartFound = animHasId(eAnimator, CFG.alternateTimedGuardAnimId)
+            if alternateTimedGuardStartFound then
+                startAlternateTimedGuard()
+            else
+                alternateTimedGuardStartDetected = false
+            end
+
+            local alternateTimedGuardEndFound = animHasId(eAnimator, CFG.alternateTimedGuardEndAnimId)
+            if alternateTimedGuardActive and (alternateTimedGuardEndFound or enemyIsRagdoll
+                or tick() >= alternateTimedGuardUntil) then
+                alternateTimedGuardActive = false
+                alternateTimedGuardUntil = 0
+            end
+
+            local quickGuardStartFound = animHasId(eAnimator, CFG.quickGuardAnimId)
+            if quickGuardStartFound then
+                startQuickGuard()
+            else
+                quickGuardStartDetected = false
+            end
+
+            if quickGuardActive and (enemyIsRagdoll or tick() >= quickGuardUntil) then
+                quickGuardActive = false
+                quickGuardUntil = 0
+            end
+
+            setSustainedGuard(chainedGuardActive or timedGuardActive
+                or alternateTimedGuardActive or quickGuardActive)
             if chainedGuardCounterReady and not sustainedGuardActive then
                 chainedGuardCounterReady = false
                 triggerCounterAttack()
@@ -1223,8 +2138,17 @@ end
 local guardAndCombat  -- 前向声明
 
 guardAndCombat = function()
+    if not runtime.alive then return end
     disconnectAll()
     stopAttacking()
+    comboGeneration = comboGeneration + 1
+    comboExecuting = false
+    comboWindowUntil = 0
+    comboMasterAnimDetected = false
+    comboEnemyAnimDetected = false
+    comboTarget = nil
+    comboObservedEnemy = nil
+    clearEnemyBackstep()
     mode             = "guard"
     currentEnemy     = nil
     currentEnemyChar = nil
@@ -1240,6 +2164,14 @@ guardAndCombat = function()
     masterAnimTimer    = 0
     masterAnimDetected = false
 
+    if comboEnabled and LP.Name == CFG.comboOwnerName then
+        task.defer(function()
+            if comboEnabled and trackEnabled then
+                enterStandby()
+            end
+        end)
+    end
+
     local masterPlayer = Players:FindFirstChild(CFG.masterName)
     if not masterPlayer then
         warn("[AutoBattle] 未找到主人: " .. CFG.masterName)
@@ -1250,8 +2182,25 @@ guardAndCombat = function()
     local masterChar     = masterPlayer.Character or masterPlayer.CharacterAdded:Wait()
     local masterHumanoid = masterChar:WaitForChild("Humanoid")
 
+    local localAnimator = humanoid and (humanoid:FindFirstChildOfClass("Animator") or humanoid)
+    if localAnimator then
+        CONN.selfBackFanPlayed = localAnimator.AnimationPlayed:Connect(function(track)
+            if runtime.alive and animTrackHasAnyId(track, CFG.selfBackFanAnimIds) then
+                triggerSelfBackFanTeleport()
+            end
+        end)
+    end
+
     -- 主人死亡（只清战斗相关连接，保留masterRespawn）
     CONN.masterDied = masterHumanoid.Died:Connect(function()
+        comboGeneration = comboGeneration + 1
+        comboExecuting = false
+        comboWindowUntil = 0
+        comboMasterAnimDetected = false
+        comboEnemyAnimDetected = false
+        comboTarget = nil
+        comboObservedEnemy = nil
+        if comboEnabled and not isStandby then enterStandby() end
         -- 单独清除除 masterRespawn 以外的所有连接
         for k, c in pairs(CONN) do
             if k ~= "masterRespawn" then
@@ -1277,7 +2226,102 @@ guardAndCombat = function()
     --   2秒内连续 3次 → 强制召唤自己到主人身边（无论是否待机）
     local mAnimator = masterHumanoid:FindFirstChildOfClass("Animator")
     if mAnimator then
+        local function bindComboEnemyAnimation(nearest)
+            if CONN.comboEnemyPlayed then
+                CONN.comboEnemyPlayed:Disconnect()
+                CONN.comboEnemyPlayed = nil
+            end
+
+            comboObservedEnemy = nearest
+            comboEnemyAnimDetected = false
+            local enemyHumanoid = nearest
+                and nearest.Character
+                and nearest.Character:FindFirstChild("Humanoid")
+            local enemyAnimator = enemyHumanoid
+                and enemyHumanoid:FindFirstChildOfClass("Animator")
+            if not enemyAnimator then return nil end
+
+            CONN.comboEnemyPlayed = enemyAnimator.AnimationPlayed:Connect(function(track)
+                if not runtime.alive or not comboEnabled or comboExecuting then return end
+                if tick() > comboWindowUntil then return end
+                if nearest ~= findNearestThreatToMaster() then return end
+                if animTrackHasAnyId(track, CFG.comboEnemyAnimIds) then
+                    comboEnemyAnimDetected = true
+                    triggerComboAttack(nearest)
+                end
+            end)
+            return enemyAnimator
+        end
+
+        local function openComboWindow()
+            if not comboEnabled or comboExecuting then return end
+            comboMasterAnimDetected = true
+            comboWindowUntil = tick() + CFG.comboWindow
+            local nearest = findNearestThreatToMaster()
+            local enemyAnimator = bindComboEnemyAnimation(nearest)
+            setStatus("状态: 连携窗口开启，等待最近敌人动作", Color3.fromRGB(255, 190, 80))
+
+            -- 两个动画近乎同时开始时，AnimationPlayed 可能早于监听绑定；立即查询一次补偿。
+            if nearest and enemyAnimator and animHasAnyId(enemyAnimator, CFG.comboEnemyAnimIds) then
+                comboEnemyAnimDetected = true
+                triggerComboAttack(nearest)
+            end
+        end
+
+        CONN.comboMasterPlayed = mAnimator.AnimationPlayed:Connect(function(track)
+            if runtime.alive and comboEnabled and animTrackHasId(track, CFG.comboMasterAnimId) then
+                openComboWindow()
+            end
+        end)
+
         CONN.masterAnim = RunService.Heartbeat:Connect(function()
+            if comboEnabled then
+                local now = tick()
+                local comboMasterFound = animHasId(mAnimator, CFG.comboMasterAnimId)
+                if comboMasterFound and not comboMasterAnimDetected then
+                    openComboWindow()
+                elseif not comboMasterFound then
+                    comboMasterAnimDetected = false
+                end
+
+                if not comboExecuting and now <= comboWindowUntil then
+                    local nearest = findNearestThreatToMaster()
+                    local enemyHumanoid = nearest
+                        and nearest.Character
+                        and nearest.Character:FindFirstChild("Humanoid")
+                    local enemyAnimator = enemyHumanoid
+                        and enemyHumanoid:FindFirstChildOfClass("Animator")
+                    local comboEnemyFound = enemyAnimator
+                        and animHasAnyId(enemyAnimator, CFG.comboEnemyAnimIds)
+                        or false
+
+                    if nearest ~= comboObservedEnemy then
+                        enemyAnimator = bindComboEnemyAnimation(nearest)
+                        comboEnemyFound = enemyAnimator
+                            and animHasAnyId(enemyAnimator, CFG.comboEnemyAnimIds)
+                            or false
+                        if comboEnemyFound then
+                            comboEnemyAnimDetected = true
+                            triggerComboAttack(nearest)
+                        end
+                    elseif comboEnemyFound and not comboEnemyAnimDetected then
+                        comboEnemyAnimDetected = true
+                        triggerComboAttack(nearest)
+                    elseif not comboEnemyFound then
+                        comboEnemyAnimDetected = false
+                    end
+                elseif now > comboWindowUntil then
+                    comboWindowUntil = 0
+                    comboEnemyAnimDetected = false
+                    comboObservedEnemy = nil
+                    if CONN.comboEnemyPlayed then
+                        CONN.comboEnemyPlayed:Disconnect()
+                        CONN.comboEnemyPlayed = nil
+                    end
+                end
+                return
+            end
+
             local found = animHasId(mAnimator, CFG.teleportAnimId)
             if found and not masterAnimDetected then
                 masterAnimDetected = true
@@ -1346,6 +2390,20 @@ guardAndCombat = function()
 
         local mRoot = character and character:FindFirstChild("HumanoidRootPart")
         if not mRoot then return end
+
+        if comboEnabled then
+            stopAttacking()
+            if not comboExecuting then
+                if not isStandby then enterStandby() end
+                pcall(function()
+                    if next(standbySavedParts) == nil then
+                        applyStandbyStealth(true)
+                    end
+                    lockStandbyPose(mRoot)
+                end)
+            end
+            return
+        end
 
         -- ── 地下隐身待机：每帧锁回地下锚点，并维持无碰撞/隐藏 ──
         if isStandby then
@@ -1522,9 +2580,83 @@ guardAndCombat = function()
                 return
             end
 
+            -- 敌人近距离使用指定动画：正面阶段保持实际12米并绕后，非正面即可前压攻击。
+            local closeBackstepActive = isEnemyBackstepCloseActive(eRoot)
+            if closeBackstepActive then
+                local defending = isCounterDefending()
+                local actionLocked = tick() < enemyBackstepActionUntil
+                    or isSideDashActionLocked()
+
+                if not actionLocked then
+                    enemyBackstepAdvanceAttack = isOutsideEnemyFront(
+                        mRoot, eRoot, enemyBackstepAdvanceAttack
+                    )
+                end
+
+                if not actionLocked then
+                    if enemyBackstepAdvanceAttack then
+                        local attackPoint = getRadialPoint(eRoot, mRoot,
+                            CFG.enemyBackstepAttackDistance)
+                        local attackDelta = Vector3.new(
+                            attackPoint and attackPoint.X - mRoot.Position.X or 0,
+                            0,
+                            attackPoint and attackPoint.Z - mRoot.Position.Z or 0
+                        )
+                        if attackPoint and attackDelta.Magnitude > CFG.enemyBackstepTolerance then
+                            moveTowardPoint(mRoot, attackPoint, separation)
+                        else
+                            humanoid:Move(Vector3.zero, false)
+                        end
+                        if defending then
+                            stopAttacking()
+                        elseif eDist <= CFG.attackRange then
+                            attackLoop()
+                        else
+                            stopAttacking()
+                        end
+                    else
+                        stopAttacking()
+                        moveAroundEnemyAtDistance(mRoot, eRoot,
+                            CFG.enemyBackstepDistance, separation)
+                    end
+
+                    pcall(function()
+                        mRoot.CFrame = CFrame.lookAt(mRoot.Position,
+                            Vector3.new(eRoot.Position.X, mRoot.Position.Y, eRoot.Position.Z))
+                        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, eRoot.Position)
+                    end)
+                end
+
+                if defending then
+                    stopAttacking()
+                elseif not actionLocked then
+                    useCombatSkill(eDist)
+
+                    if not enemyBackstepAdvanceAttack then
+                        if now - lastDashTime >= CFG.dashDebounce then
+                            performDash(eRoot, true)
+                            lastDashTime = now
+                        else
+                            performSideDash(eRoot, true, true)
+                        end
+                    else
+                        performSideDash(eRoot, true, true)
+                    end
+                end
+                setStatus(string.format(
+                    "状态: %s\n敌方: %s | %.1fm | 技能/冲刺/侧闪攻击",
+                    defending and (enemyBackstepAdvanceAttack and "防御中→背侧靠近" or "防御中→正面绕后")
+                        or (enemyBackstepAdvanceAttack and "背侧→靠近攻击" or "正面保持12米绕后"),
+                    currentEnemy.Name, eDist), Color3.fromRGB(255, 170, 80))
+                return
+            end
+
             -- 擂台辅助位保持中远程，保护位进入敌方与残血队友之间。
-            if isCounterDefending() then
-                humanoid:Move(Vector3.zero, false)
+            if isSideDashActionLocked() then
+                -- Side-dash coroutine owns movement until its attachment step completes.
+            elseif isCounterDefending() then
+                stopAttacking()
+                moveWhileDefending(mRoot, eRoot, separation)
             elseif arenaEnabled and not trainingEnabled and assignment == "support" then
                 local away = mRoot.Position - eRoot.Position
                 if away.Magnitude < 0.05 then away = eRoot.CFrame.RightVector end
@@ -1539,11 +2671,22 @@ guardAndCombat = function()
                 moveTowardPoint(mRoot,
                     eRoot.Position + towardProtected.Unit * CFG.arenaInterceptRange, separation)
             elseif eDist > CFG.combatFollowDist then
+                local pursuitPoint = eRoot.Position
+                local backstepActive = isEnemyBackstepActive(eRoot)
+                if backstepActive then
+                    pursuitPoint = getEnemyBackstepPoint(eRoot) or pursuitPoint
+                end
                 pcall(function()
                     mRoot.CFrame = CFrame.lookAt(mRoot.Position,
-                        Vector3.new(eRoot.Position.X, mRoot.Position.Y, eRoot.Position.Z))
+                        Vector3.new(pursuitPoint.X, mRoot.Position.Y, pursuitPoint.Z))
                 end)
-                local moveDirection = eDir
+                local pursuitDelta = Vector3.new(
+                    pursuitPoint.X - mRoot.Position.X,
+                    0,
+                    pursuitPoint.Z - mRoot.Position.Z
+                )
+                local moveDirection = pursuitDelta.Magnitude > 0.05
+                    and pursuitDelta.Unit or Vector3.zero
                 if separation.Magnitude > 0.05 then
                     moveDirection = moveDirection + separation.Unit
                 end
@@ -1560,26 +2703,28 @@ guardAndCombat = function()
 
             -- 冲刺
             if not isCounterDefending()
+                and not isSideDashActionLocked()
                 and (not arenaEnabled or trainingEnabled or assignment == "fighter")
                 and eDist > CFG.combatDashMinRange
                 and eDist <= CFG.combatDashRange
                 and now - lastDashTime >= CFG.dashDebounce then
-                performDash(); lastDashTime = now
+                performDash(eRoot, isEnemyBackstepActive(eRoot)); lastDashTime = now
             end
 
             -- 技能按距离决策；Blitz Shot 在其他技能不可用时全距离兜底。
-            if not isCounterDefending() and assignment ~= "retreat" then
+            if not isCounterDefending() and not isSideDashActionLocked()
+                and assignment ~= "retreat" then
                 useCombatSkill(eDist)
             end
 
             -- 攻击 + 侧闪
-            if isCounterDefending() then
+            if isCounterDefending() or isSideDashActionLocked() then
                 stopAttacking()
             elseif (not arenaEnabled or trainingEnabled
                 or assignment == "fighter" or assignment == "protector")
                 and eDist <= CFG.attackRange then
                 attackLoop()
-                performSideDash()
+                performSideDash(eRoot, isEnemyBackstepActive(eRoot), true)
             else
                 stopAttacking()
             end
@@ -1599,7 +2744,16 @@ end
 --  本地死亡/重生
 -- ══════════════════════════════════════
 local function onLocalDeath()
+    if not runtime.alive then return end
     disconnectAll(); stopAttacking()
+    comboGeneration = comboGeneration + 1
+    comboExecuting = false
+    comboWindowUntil = 0
+    comboMasterAnimDetected = false
+    comboEnemyAnimDetected = false
+    comboTarget = nil
+    comboObservedEnemy = nil
+    clearEnemyBackstep()
     isStandby = false
     blitzJumpPending = false
     cancelCounterAttack()
@@ -1612,12 +2766,15 @@ local function onLocalDeath()
     -- 不用 :Wait()，改用事件监听，避免角色已加载时永远挂起
     if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
     localDiedConn = LP.CharacterAdded:Connect(function(newChar)
+        if not runtime.alive then return end
         if localDiedConn then localDiedConn:Disconnect(); localDiedConn = nil end
         character = newChar
         humanoid  = newChar:WaitForChild("Humanoid")
+        if not runtime.alive then return end
         -- 绑定下一次死亡
         localDiedConn = humanoid.Died:Connect(onLocalDeath)
         task.wait(1)  -- 等角色物理完全加载
+        if not runtime.alive then return end
         guardAndCombat()
     end)
 end
@@ -1634,7 +2791,7 @@ local function createGUI()
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; sg.Parent = LP.PlayerGui
 
     local panel = Instance.new("Frame")
-    panel.Name="Panel"; panel.Size=UDim2.new(0,240,0,430)
+    panel.Name="Panel"; panel.Size=UDim2.new(0,240,0,465)
     panel.Position=UDim2.new(0,20,0.5,-198)
     panel.BackgroundColor3=Color3.fromRGB(15,15,20)
     panel.BorderSizePixel=0; panel.Active=true; panel.Draggable=true; panel.Parent=sg
@@ -1700,7 +2857,12 @@ local function createGUI()
             }):Play()
         end
         refresh()
-        btn.MouseButton1Click:Connect(function() on=not on; refresh(); cb(on) end)
+        btn.MouseButton1Click:Connect(function()
+            on = not on
+            local accepted = cb(on)
+            if accepted == false then on = not on end
+            refresh()
+        end)
     end
 
     -- 状态框
@@ -1724,6 +2886,13 @@ local function createGUI()
             guardAndCombat()
         else
             disconnectAll(); stopAttacking()
+            clearEnemyBackstep()
+            comboGeneration = comboGeneration + 1
+            comboExecuting = false
+            comboWindowUntil = 0
+            comboEnemyAnimDetected = false
+            comboTarget = nil
+            comboObservedEnemy = nil
             cancelCounterAttack()
             if isStandby then exitStandby() end
             setStatus("状态: ⏸ 已暂停", Color3.fromRGB(160,160,160))
@@ -1731,6 +2900,10 @@ local function createGUI()
     end)
 
     mkToggle("🥊  主人练招", false, function(on)
+        if on and comboEnabled then
+            setStatus("状态: 连携技运行中，主人练招保持关闭", Color3.fromRGB(255, 190, 80))
+            return false
+        end
         trainingEnabled = on
         if not trackEnabled then return end
 
@@ -1778,6 +2951,36 @@ local function createGUI()
         end
     end)
 
+    mkToggle("🤝  连携技模式", false, function(on)
+        if on and LP.Name ~= CFG.comboOwnerName then
+            setStatus("状态: 连携技仅限 " .. CFG.comboOwnerName, Color3.fromRGB(255, 100, 100))
+            return false
+        end
+
+        comboGeneration = comboGeneration + 1
+        comboEnabled = on
+        comboExecuting = false
+        comboWindowUntil = 0
+        comboMasterAnimDetected = false
+        comboEnemyAnimDetected = false
+        comboTarget = nil
+        comboObservedEnemy = nil
+        masterAnimCount = 0
+        masterAnimTimer = 0
+        masterAnimDetected = false
+
+        if on then
+            trainingEnabled = false
+            enterGuardMode()
+            if enterStandby() then
+                setStatus("状态: 连携技开启，地下隐身待机", Color3.fromRGB(180, 130, 255))
+            end
+        else
+            if isStandby then exitStandby() end
+            setStatus("状态: 连携技关闭，恢复守卫", Color3.fromRGB(100, 200, 255))
+        end
+    end)
+
     -- 指示行
     modeLabel    = mkLabel("模式: 守卫", 14)
     enemyLabel   = mkLabel("敌方: 无", 14)
@@ -1786,9 +2989,20 @@ local function createGUI()
     tpLabel      = mkLabel("练招: 关闭", 14)
     cdLabel      = mkLabel("技能冷却: 就绪 ✔", 14)
 
-    RunService.Heartbeat:Connect(function()
+    if guiHeartbeatConn then
+        guiHeartbeatConn:Disconnect()
+        guiHeartbeatConn = nil
+    end
+    guiHeartbeatConn = RunService.Heartbeat:Connect(function()
+        if not runtime.alive then return end
         if modeLabel then
-            if isStandby then
+            if comboExecuting then
+                modeLabel.Text      = "模式: 🤝 连携出击"
+                modeLabel.TextColor3= Color3.fromRGB(255, 120, 80)
+            elseif comboEnabled then
+                modeLabel.Text      = "模式: 🤝 连携待机"
+                modeLabel.TextColor3= Color3.fromRGB(180, 130, 255)
+            elseif isStandby then
                 modeLabel.Text      = "模式: 🌙 地下隐身待机"
                 modeLabel.TextColor3= Color3.fromRGB(180, 130, 255)
             elseif trainingEnabled then
@@ -1809,8 +3023,9 @@ local function createGUI()
             end
         end
         if enemyLabel then
-            if currentEnemy then
-                enemyLabel.Text      = "敌方: " .. currentEnemy.Name
+            local displayedEnemy = comboTarget or currentEnemy
+            if displayedEnemy then
+                enemyLabel.Text      = "敌方: " .. displayedEnemy.Name
                 enemyLabel.TextColor3= Color3.fromRGB(255, 160, 80)
             else
                 enemyLabel.Text      = "敌方: 无"
@@ -1861,7 +3076,7 @@ local function createGUI()
     colBtn.MouseButton1Click:Connect(function()
         collapsed = not collapsed
         TweenSvc:Create(panel, TweenInfo.new(0.2,Enum.EasingStyle.Quad),{
-            Size = collapsed and UDim2.new(0,240,0,36) or UDim2.new(0,240,0,360)
+            Size = collapsed and UDim2.new(0,240,0,36) or UDim2.new(0,240,0,465)
         }):Play()
         content.Visible = not collapsed
         colBtn.Text = collapsed and "□" or "─"
@@ -1869,11 +3084,68 @@ local function createGUI()
 end
 
 -- ══════════════════════════════════════
---  启动
+--  热重载清理 / 启动
 -- ══════════════════════════════════════
+local function cleanup()
+    if runtime.cleaning or runtime.cleaned then return end
+    runtime.cleaning = true
+    runtime.alive = false
+    trackEnabled = false
+    trainingEnabled = false
+    comboEnabled = false
+    comboExecuting = false
+    comboGeneration = comboGeneration + 1
+    clearEnemyBackstep()
+
+    disconnectAll()
+    if localDiedConn then
+        pcall(function() localDiedConn:Disconnect() end)
+        localDiedConn = nil
+    end
+    if guiHeartbeatConn then
+        pcall(function() guiHeartbeatConn:Disconnect() end)
+        guiHeartbeatConn = nil
+    end
+
+    stopAttacking()
+    cancelCounterAttack()
+    pcall(function()
+        RunService:UnbindFromRenderStep(COMBO_CAMERA_BIND_KEY)
+    end)
+    sendKey(Enum.KeyCode.F, false)
+    sendKey(Enum.KeyCode.W, false)
+    sendKey(Enum.KeyCode.Q, false)
+    sendKey(Enum.KeyCode.D, false)
+    local savedAutoRotate = standbyAutoRotate
+    pcall(function() exitStandby() end)
+    pcall(function()
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.Anchored = false
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+        if humanoid then
+            humanoid:Move(Vector3.zero, false)
+            humanoid.PlatformStand = false
+            humanoid.AutoRotate = savedAutoRotate ~= nil and savedAutoRotate or true
+        end
+    end)
+
+    pcall(function()
+        local gui = LP.PlayerGui:FindFirstChild("AutoBattleGUI")
+        if gui then gui:Destroy() end
+    end)
+
+    if GLOBAL_ENV[INSTANCE_KEY] == runtime then
+        GLOBAL_ENV[INSTANCE_KEY] = nil
+    end
+    runtime.cleaning = false
+    runtime.cleaned = true
+end
+
+runtime.cleanup = cleanup
+
 createGUI()
 localDiedConn = humanoid.Died:Connect(onLocalDeath)
 guardAndCombat()
-
-
-
